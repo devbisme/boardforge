@@ -1,0 +1,573 @@
+# boardsmith — design doc (draft for review)
+
+Status: **proposal, no code yet.** Written 2026-10-11 from the runs in
+[ai-circuit-design-tests](https://github.com/devbisme/ai-circuit-design-tests) (local: `~/projects/AI/ai-circuit-design-tests`).
+All run paths below are relative to that repo.
+Name: **boardsmith**.
+
+## 1. Goal
+
+One tool, covering phases 1–14 (spec → fab outputs), that:
+
+1. **Explores widely:** many architectures, a large part catalog.
+2. **Converges:** once one alternative is picked, it produces a routed, DRC-clean,
+   manufacturable board.
+3. Runs **cheaply and quickly**: few tokens and short wall-clock time.
+4. Is **easy to install**, can run **autonomously** on request, and needs **no GUI**. KiCad is
+   used only to view or edit the results.
+
+Source of truth for the circuit: **SKiDL code**.
+
+## 2. What the runs say (evidence base)
+
+### 2.1 Generator runs on the same prompt (all Opus 5.5)
+
+| Run | Reached | Tokens | Equiv. $ | Wall clock | How the board was actually built |
+|---|---|---|---|---|---|
+| Konnect 2 | routed, DRC 0 | 164.8M | 61.12 | ~7 h (incl. GUI waits) | ~1 MCP call per edit, plus GUI steps by the user |
+| kicad-mcp-server 2 | routed, 4 DRC err | 51.8M | 16.93 | ~2h20m | server functions in bulk from scripts, plus pcbnew scripts |
+| kicad-mcp-pro 2 | routed, DRC 0 | 57.7M | 19.42 | ~1h35m | `sch_build_circuit` per sheet, plus scripts |
+| eda-agent 2 | routed, DRC 0 | 51.6M | 18.47 | ~1h56m | DesignPlan JSON → label writer, plus scripts |
+| kcaa 2 | routed, DRC 0 | 60.1M | 19.38 | ~3h45m (2×36 min Freerouting) | ~2,500 in-process kcaa calls from `design.py` |
+| kicad-happy 2 | routed, DRC 0, 100 % MPN | n/a¹ | 29.37 | ~3.5 h | **SKiDL + scripts only**; kicad-happy for review |
+| skidl-skills 9 | netlist only | 49.4M | 21.01 | ~2–3 h² | multi-agent SKiDL pipeline |
+| Copperhead 1 | BOM only | — | ~33.5 | ~10 h | 208 single-turn sessions |
+
+Sources: each run's `claude_cost.txt`, `README.md` and `executive_summary.md`.
+¹ kicad-happy run 2 has no token total in its cost file listing. ² Run 8 was ~2¼ h; run 9's
+time comes from its summary and is uncertain. The skidl-skills top-level README cost column
+differs from some runs' `claude_cost.txt` (e.g. run 4: $93.45 vs $46.86). I used the cost
+files.
+
+**Takeaways**
+
+- **The tool barely matters for the board; the scripts do.** Every routed board came from the
+  same pattern: a single-file netlist → label-based schematic writer → kicad-cli netlist parity
+  check → scripted placement → locked plane fanout → Freerouting → A* finisher → polish. Each
+  MCP server was used for a slice and then worked around. Evidence: the "gaps filled by
+  scripts" bullets in every tool README, and memory notes
+  [kcaa design gaps], [kicad-mcp-pro design gaps], [eda-agent gaps].
+- **Fine-grained MCP editing is expensive.** Konnect, editing one item per call, used about 3×
+  the tokens of the script-driven runs. Calling tool code in-process (kcaa, kicad-mcp-server,
+  kicad-mcp-pro, eda-agent) was the main way to keep cost down.
+- **ERC and DRC passing is a weak measure of quality.** Every run passed both and still had
+  spec-level faults:
+  - weak anti-aliasing in nearly every run;
+  - pin wiring written from memory because datasheet downloads failed;
+  - decoupling caps 5–22 mm from their pins (eda-agent 1, kcaa 1).
+- **There was little real exploration.** Each run listed options per block and then committed
+  to one design. The skidl-skills runs differ from each other mostly through run-to-run noise,
+  not deliberate search (skidl-skills README, "Comparison").
+- **Nothing was compact.** Boards ranged from 115×85 to 150×90 mm. Copperhead's spec targeted
+  ≤100×80 mm, but it never got to layout.
+
+### 2.2 Best component per phase
+
+| Phase | Best performer (evidence) | Keep | Drop / fix |
+|---|---|---|---|
+| 1 Spec | Copperhead `constraints.json` (16 numeric budgets, ASSUMED tags); skidl-skills `SPEC.md` hard/soft split | Both: prose spec + **machine-checkable constraints file** | — |
+| 2 Architecture | Copperhead/skidl-skills per-block criteria → options → choice | Per-block option lists | Single-candidate commit; add real enumeration and scoring (§4.1) |
+| 3 Budgets | Copperhead jitter/power/suspend budgets; kcaa `filter_design.py` | Budgets as code checked against constraints | Hand-waved filter order (aliasing missed in 6+ runs) |
+| 4 Sourcing | skidl-skills part-sourcer + **pcbparts MCP** (live LCSC stock and price) | pcbparts; kicad-happy distributor skills (DigiKey/Mouser/LCSC/JLC) if keys exist | Stock-KiCad-lib-only restriction (Copperhead, most MCP runs) |
+| 5 Datasheets | skidl-skills librarian + `fetch-datasheet.py` (validated PDFs), `pdf-table.py` | Same, plus a **persistent part-fact cache** | Repeated FTDI 403 / analog.com timeouts with no fallback |
+| 6 Libraries | skidl-skills: kipart symbols, `generate-footprint.py`; flattened symdirs | kipart; footprint generator | Footprint-vs-package check missing (`validate-footprints.py` only checks the file exists) |
+| 7 Capture | SKiDL modular block coders + assembler (skidl-skills); byte-stable netlists | Same | — |
+| 8 ERC/parity | kicad-happy 2 `sch_writer.py` + `compare_netlists.py` (0 ERC, exact parity) | Label-based writing (to become schematizer's labels-only mode) + kicad-cli parity gate | SKiDL schematizer output (merged GND/+3V3, 910 violations) |
+| 9 Review | skidl-skills **independent ERC reviewer** (found a HIGH defect in 5 runs); kicad-happy suite (SPICE, EMC, thermal, cross-domain; $1.92); eda-agent/kcaa-style netlist + geometry scripts | Reviewer agent with fresh context + kicad-happy scripts + geometry checks | MCP analyzers that gave wrong answers on label-connected designs (kcaa netlist/ratsnest, kicad-mcp-pro gate) |
+| 10 PCB setup | kicad-happy 2 `build_pcb.py` (from netlist, no GUI); skidl-skills `generate-design-rules.py` | Build board from netlist in pcbnew Python; rules from a fab profile | kcaa GUI-only `update_pcb_from_schematic` (needed xdotool) |
+| 11 Placement | kcaa `place_pcb.py` (signal-flow floorplan, B.Cu decaps, 2.5 mm escape band, collision guard); kicad-happy passives-next-to-pin; `pin_swap.py` | All of these, as one placer | Grid/spiral auto-placement (kicad-mcp-pro scored 1/100; eda-agent spiral decaps → 63+ unrouted) |
+| 12 Routing | kicad-happy 2 / Konnect 2: `fanout.py`, `preroute_usb.py`, `dsn_tools.py`, Freerouting 2.4.1, `astar_fix.py`, SES merge | Whole pipeline, with the settings that worked: 0.45/0.2 vias, 0.15 tracks, `-mt 1`, inner layers typed `power` | Plane polygons in DSN (NPE); incremental Freerouting re-runs |
+| 13 DRC/DFM | kicad-cli DRC `--schematic-parity`; eda-agent impedance calc; geometry script (decap distances); `add_fiducials.py`; `widen_narrow.py` | All | Silkscreen left dirty in most runs; no test points |
+| 14 Outputs | kicad-cli exports + JLC conversion (eda-agent 1, kcaa 1, kicad-happy 2) | Scripted JLC zip/BOM/CPL, renders, `.pcf` | MCP export tools (inch CPL, ungrouped BOM, all 20 layers) |
+
+## 3. Design principles
+
+1. **The LLM decides; scripts execute.** The model writes specs, makes choices and writes SKiDL
+   code, and steps in when something fails. Everything mechanical (schematic writing,
+   placement, routing, checks, exports) is a deterministic script that returns a short
+   summary. This is the main lever on tokens and time.
+2. **Coarse tools.** Each tool call does a whole step, e.g. `route(project)`, not
+   `add_via(x, y)`. The output is a summary of a few hundred tokens, with full details written
+   to disk.
+3. **One source of truth per layer.** SKiDL code for the circuit, `constraints.json` for
+   requirements, a fab profile for the rules. Everything else is generated from these, never
+   edited by hand. Hand edits caused the "partly scripted rebuild" problem in
+   kicad-mcp-server 2 and kicad-mcp-pro 2.
+4. **Gates measure the spec, not just ERC and DRC.** Each gate checks against
+   `constraints.json` and fails loudly when it can't verify something. Following your
+   error-handling preference, failures are warnings that are recorded; they don't stop the run.
+5. **Files are the interface.** Handoff files plus `pipeline_state.json`, as in skidl-skills.
+   That gives resume after a usage-limit stop, autonomy, and inspectable intermediate results.
+6. **Headless by construction.** Use kicad-cli and KiCad 10's Python in subprocesses. Each
+   mutation runs in a fresh process, which avoids the SWIG stale-wrapper problem
+   ([eda-agent gaps]). IPC is optional and only used to refresh a KiCad window if one is open.
+
+## 4. Architecture
+
+```
+            ┌────────────── EXPLORE (cheap, wide) ──────────────┐
+ prompt ──► │ A1 spec + constraints.json                        │
+            │ A2 enumerate N architectures (block × option grid)│
+            │ A3 score each: deterministic calculators + quick  │
+            │    part lookups → Pareto table                    │
+            └──────────────┬────────────────────────────────────┘
+                           │ select (user, or auto by weights)
+            ┌──────────────▼──────── DETAIL (LLM-heavy) ─────────┐
+            │ B1 sourcing + datasheets → part-fact cache         │
+            │ B2 symbols/footprints (stock, kipart, generator,   │
+            │    LCSC import) + package check                    │
+            │ B3 SKiDL block coders + assembler                  │
+            │ B4 review gate: reviewer agent + SPICE + budgets   │
+            └──────────────┬─────────────────────────────────────┘
+            ┌──────────────▼──────── PHYSICAL (scripts) ─────────┐
+            │ C1 sch writer → kicad-cli netlist → parity gate    │
+            │ C2 board setup from fab profile + net classes      │
+            │ C3 placement (floorplan + algorithmic + compaction)│
+            │ C4 routing (preroute, fanout, Freerouting, A*)     │
+            │ C5 DRC/parity/DFM/geometry/EMC checks              │
+            │ C6 fab outputs                                     │
+            └──────────────┬─────────────────────────────────────┘
+                     loop back to C3 (or B3) on failure
+```
+
+### 4.1 Explore (A1–A3): the new part
+
+None of the tested tools did this, so this stage is the least proven.
+
+- **A1:** prose `SPEC.md` plus a `constraints.json` of numeric budgets, each tagged
+  HARD/SOFT/ASSUMED (from Copperhead). Catch contradictions early. Every run caught the USB
+  throughput contradiction, so this already works.
+- **A2:** for each block, list the option families: ADC type, memory, controller, bridge, AFE
+  topology, power tree, layer count. Generate **N candidate architectures**, around 4–8,
+  pruned for compatibility. Each one is a small structured file: blocks, key part *classes*,
+  interfaces. A cheaper model (Sonnet/Haiku) can do the enumeration. Only key ICs are named,
+  not passives.
+- **A3:** score each candidate with **deterministic calculators**, not prose:
+  - throughput and memory depth;
+  - power budget against the USB limits;
+  - anti-alias attenuation at Nyquist versus ENOB (this would have caught the most common
+    defect in the runs);
+  - clock jitter budget;
+  - key-part cost and stock from pcbparts;
+  - board-area estimate from summed courtyard areas × fill factor;
+  - layer count and fab tier;
+  - JLC basic vs. extended part count.
+
+  The output is a Pareto table (`candidates.md`).
+  - **Default (decided 2026-10-11):** the run stops here so you can pick a candidate. To pick
+    one later, run `boardsmith select <id>`; the run then continues from `pipeline_state.json`.
+  - In autonomous mode (`--auto`), it auto-selects using weights from the prompt and records
+    why it chose that candidate.
+
+Cost control: A3 is mostly calculator scripts plus one batch of part lookups, so exploring 8
+candidates should cost far less than detailing one. *Estimate, unverified.*
+
+### 4.2 Detail (B1–B4)
+
+- Reuse skidl-skills' agents (architect, sourcer, librarian, block coder, assembler,
+  reviewer), handoff files, `validate-bom.py`, and Sonnet subagents for the mechanical work.
+- **Part-fact cache:** use kicad-happy's `datasheets/` skill (§4.7), not a new one. It already
+  extracts pin tables, ratings, operating conditions and application circuits into per-MPN
+  JSON, with schemas, scoring and validation. boardsmith only adds a cross-project location
+  for the cache, which is checked before any fetch.
+  - Your tests turned the cache off so runs would be independent. In the tool it should be
+    on by default, with a `--fresh` switch.
+  - It fixes two problems from the runs: facts that disagree between runs (ADS5231 minimum
+    clock), and datasheet fetches that fail every time.
+- **Datasheet fallbacks:** manufacturer URL → LCSC-hosted PDF (kicad-happy
+  `fetch_datasheet_lcsc.py`, no key) → other distributor fetchers (keys needed) → flag as
+  "from memory". Whether the LCSC copy works for FTDI and ADI parts is *unverified*.
+- **Libraries:**
+  - KiCad 10 stock libs, read natively. **Fix SKiDL's `.kicad_symdir` loading** rather than
+    flattening libraries in every run.
+  - kipart for missing symbols, and the footprint generator.
+  - LCSC symbol/footprint import (e.g. easyeda2kicad) to widen the catalog. This is *new and
+    untested here.*
+  - Add a **package check** (footprint pad count, pitch and body size against the datasheet
+    package) to catch the mirrored BNC and USB-C SH/S1 class of errors.
+- **B4 review gate:**
+  1. ERC.
+  2. **Datasheet verification:** kicad-happy `datasheet_verify.py` compares the extracted
+     specs with the connections: voltage violations, missing external parts, decoupling.
+  3. The independent reviewer agent, with fresh context and datasheets.
+  4. A **SPICE check of every analog block** against `constraints.json` (filter attenuation,
+     headroom), using kicad-happy's spice scripts. The pass/fail limits come from boardsmith's
+     constraints; kicad-happy alone only checks that a circuit is internally consistent
+     (§4.7).
+  5. Budget recheck with the real parts.
+
+  Failures go back to B3 with the specific findings.
+
+### 4.3 Physical (C1–C6): harden the scripts that worked
+
+The starting point is kicad-happy run 2's `scripts/`, together with routing pieces from
+eda-agent, kcaa and Konnect. Turn it into a package with tests.
+
+- **C1:** schematizer in labels-only mode, then kicad-cli netlist, then pin-for-pin compare.
+  - **Decided (2026-10-11):** the schematic is written by **schematizer** in a new
+    **labels-only mode**. There is no separate writer package. schematizer is already a
+    PyPI package that reads the same JSON, so boardsmith lists it as a dependency and it
+    installs automatically.
+  - Labels-only mode differs from schematizer's normal mode in three ways:
+    1. Every net is stubbed, so each pin gets a power symbol, a global or local label, or a
+       no-connect flag.
+    2. Parts are placed on a simple deterministic grid instead of at random positions.
+    3. There is no wire routing.
+  - Prerequisite: fix schematizer's KiCad 10 file writing. With `auto_stub=True`, kicad-happy
+    run 2 got merged GND/+3V3, dropped pins, an old version stamp, single-level `/uuid` sheet
+    paths and 910 ERC violations. The cause hasn't been found and is probably in code shared
+    with normal mode. The rules and fixes in kicad-happy run 2's `scripts/sch_writer.py`
+    (0 ERC errors, exact netlist match) are the reference.
+  - The **netlist-match check stays in boardsmith**, not schematizer. It needs `kicad-cli`, and
+    schematizer has no KiCad dependency. The check exports a netlist with kicad-cli and
+    compares it to the JSON `nets`.
+  - The input is the **`skidl-generic-netlist` v1 JSON** produced by
+    `skidl.schematic_netlist.build_generic_netlist`.
+  - Why the format fits:
+    - Symbols are embedded (`draw_cmds` + per-unit pin geometry), so no KiCad libraries are
+      read at write time. This avoids the `extends`, private-property and symdir bugs seen in
+      the runs.
+    - Each pin carries its `unit`, which avoids the multi-unit bugs.
+    - Nets have an `nc` flag (no-connects), and parts have a `hiertuple` (sheets).
+    - Output is sorted, so it's deterministic.
+    - The schema is versioned, and readers must ignore unknown keys.
+    - The parity check can compare the kicad-cli netlist straight against the JSON `nets`.
+  - Additions needed. All are additive keys, so the schema stays at v1 and schematizer
+    ignores them:
+    - `components[].fields`: MPN, manufacturer, LCSC#, DNP. Today only `value` and
+      `footprint` are carried, and the BOM and CPL need these.
+    - `nets[].attrs` (optional): net class, width, diff-pair partner, impedance. Used by C2.
+      A sidecar file is the alternative.
+  - Labels-only rules:
+    - Net scope comes from `hiertuple`: a net on several sheets gets a global label, a net on
+      one sheet gets a local label.
+    - Power symbols are chosen by name against the vendored power library, the same rule
+      schematizer uses. Other rails get labels.
+  - SKiDL still needs its `.kicad_symdir` loading fixed, because it reads the libraries when
+    it builds the document.
+  - Readable schematic layout is a secondary goal. The schematic is for humans to view;
+    connectivity comes from the netlist.
+- **C2:**
+  - Board built straight from the netlist in pcbnew Python, with no GUI.
+  - Stackup and rules come from the selected **fab adapter** (§4.5). JLCPCB is the only one
+    at first.
+  - Net classes come from **net attributes declared in SKiDL**. This avoids the BUCK_SW miss
+    caused by sheet-prefixed net names.
+  - Save the `.kicad_pro` properly, since `board.Save()` wipes net classes.
+- **C3 placement** is the weakest area in every run and the main lever on area:
+  1. LLM floorplan: block regions in signal-flow order, analog/digital separation, connector
+     edges. This is one short decision.
+  2. Algorithmic placement inside each region:
+     - ICs first;
+     - decaps on the same side within N mm of their pin, or on the back side under the IC;
+     - a 2.5 mm escape band around fine-pitch parts;
+     - passives next to the pin they serve;
+     - courtyard collision checks.
+  3. FPGA/MCU pin swap to untangle buses (`pin_swap.py`). It writes the pin map back into the
+     SKiDL source.
+  4. **Compaction loop:** shrink the outline and region spacing step by step, scoring each
+     step with a fast congestion estimate (ratsnest crossings and pin density per cell). Keep
+     the smallest layout that still passes the routability estimate. Confirm with a real route.
+- **C4 routing:** the steps below run through the router interface (§4.6). Only step 4
+  depends on which router is used.
+  1. Preroute critical nets: USB diff pair as a coupled pair at the target impedance, and the
+     ADC clock.
+  2. Locked plane fanout.
+  3. Build a router-neutral `RouteJob` (see §4.6).
+  4. Main router. The default is Freerouting, run from the bundled binary (no Java version
+     trap) with `-mt 1`, small vias and 0.15 mm tracks. Its adapter handles the DSN details:
+     plane polygons stripped, inner layers typed `power`, plane nets cut, SES merge.
+  5. Finishing router: the A* router with rip-up, for whatever the main router left
+     unrouted. Then polish: widen necked tracks, remove duplicate vias, outer pours, refill.
+  6. If more than a threshold of connections stay unrouted, go back to C3 with a slightly
+     larger area or a different swap. This loop runs without the LLM.
+- **C5:** kicad-cli DRC `--schematic-parity` with the fab profile rules, then schematic↔PCB
+  geometry checks with kicad-happy `cross_verify.py` / `cross_analysis.py`: diff-pair length,
+  decoupling placement, power trace width, bus skew, thermal vias. boardsmith adds only what
+  those miss:
+  - decap distance per IC pin, with a hard threshold. On the Konnect board, kicad-happy run 1
+    didn't report the 5–22 mm decaps that the eda-agent and kcaa geometry scripts found;
+    whether `cross_verify` catches them is *unverified*;
+  - clock route length;
+  - digital traces crossing the AFE region.
+
+  Then the kicad-happy PCB/EMC/thermal analyzers. The thermal analyzer gets real per-rail
+  currents from the power budget; without them it assumed rated currents and produced
+  false positives. Their findings are triaged by a short LLM
+  pass that keeps a list of known false-positive patterns (e.g. EMC plane-gap findings,
+  label-connected "isolated" parts).
+- **C6:**
+  - Gerber zip with fab layers only, checked with kicad-happy `analyze_gerbers.py`;
+  - BOM and pick-and-place in the fab's formats, from the fab adapter. For JLCPCB, it uses
+    kicad-happy `translate_bom_pnp.py`: LCSC numbers, pick-and-place in mm. That script passes
+    rotations through unchanged, so boardsmith adds the per-footprint rotation offsets
+    (*a gap* in every run);
+  - fiducials, test points on key rails and signals, silkscreen cleanup;
+  - 3D renders and a schematic PDF;
+  - FPGA constraint file;
+  - **release gate:** kicad-happy `fab_release_gate.py` gives a pass/fail "ready for fab"
+    verdict from all the analyzer outputs.
+
+### 4.4 Packaging and install
+
+- **One Python package** (`uv tool install` / pip):
+  - a CLI that runs each stage, or the whole pipeline (`boardsmith run --auto`);
+  - library code for the scripts.
+- **A Claude Code plugin** (skills + agents + script hooks) that drives the LLM stages and
+  calls the CLI. An optional **small MCP server** exposes the same coarse steps for other
+  clients, about 10–15 tools, not 289.
+- **External dependencies:**
+  - KiCad 10 (kicad-cli + its Python);
+  - SKiDL;
+  - Freerouting (bundled binary, fetched by `boardsmith setup`);
+  - ngspice (optional);
+  - kicad-happy scripts: **vendored** in `src/boardsmith/vendor/kicad_happy/` (MIT; version
+    2.3.1, commit `0684046`; unmodified; attribution in `VENDORED.md`). A few validators need
+    the optional `jsonschema` package.
+  - Note: the scripts from kicad-happy **run 2** (`sch_writer.py`, `build_pcb.py`,
+    `fanout.py`, `astar_fix.py`, …) aren't kicad-happy code. Claude wrote them during your
+    test session, so they're yours to reuse directly.
+- `boardsmith doctor` checks the environment against the pitfalls these tests kept hitting:
+  - KiCad 9 vs. 10 kicad-cli;
+  - the `KICAD_SYMBOL_DIR` override;
+  - stale global `sym-lib-table` (use project-local tables);
+  - the Java version.
+
+### 4.5 Fab adapters (decided 2026-10-11: JLCPCB only at first, others easy to add)
+
+Everything that depends on the fab sits behind one interface, so the rest of the pipeline
+never names a fab. Adding a fab means adding one directory, `boardsmith/fabs/<fab>/`:
+
+- **`profile.yaml`** (data):
+  - capability tiers: minimum track/space, drill sizes, annular ring, via types, board
+    thickness, copper weights;
+  - standard stackups with impedance data;
+  - layer-count limits;
+  - assembly limits: sides, smallest package;
+  - DFM thresholds.
+- **`adapter.py`** (code, a small class) with these methods:
+  - `design_rules(tier, stackup)` → `.kicad_dru` plus net-class defaults;
+  - `parts_catalog()` → sourcing back end. For JLCPCB: kicad-happy `search_lcsc.py` (free
+    jlcsearch API, no key; stock, price tiers, basic vs. extended), with pcbparts MCP as an
+    option. The script costs fewer tokens than an MCP server; how their results compare is
+    *unverified*;
+  - `gerber_set()` → layer list, naming and zip layout;
+  - `bom(rows)` and `cpl(rows)` → the fab's files (column order, units, rotation-offset
+    table);
+  - `dfm_checks(board)` → fab-specific checks beyond KiCad DRC;
+  - `estimate_cost(board, bom)` → rough price for A3/B scoring. Optional; may return
+    "unknown".
+
+A base class supplies defaults for anything a fab doesn't override, such as the plain
+kicad-cli Gerber export. The fab is chosen once in `constraints.json` (`"fab": "jlcpcb"`).
+Exploration (A3) uses the adapter's catalog and cost estimate, so it ranks candidates for the
+chosen fab.
+
+### 4.6 Router interface (decided 2026-10-11: Freerouting default, other routers pluggable)
+
+Like the fab adapters (§4.5), each router plugs in through one interface, so the rest of the
+pipeline never names a router. Routers live in `boardsmith/routers/<name>.py`.
+
+- **`RouteJob`** (router-neutral input, built by boardsmith):
+  - path to a scratch copy of the board (prerouted and fanned-out items are locked);
+  - which nets to route, and which to skip or treat as plane-connected;
+  - layer roles: signal, plane, or avoid;
+  - rules per net class (width, clearance, via size) from the fab adapter;
+  - diff pairs and length or skew targets;
+  - time budget, thread count and random seed.
+- **`RouteResult`** (output):
+  - the routed board (or tracks and vias to merge);
+  - the list of unrouted connections;
+  - statistics: completion %, via count, total length, run time;
+  - a log path.
+- **`Router` class:**
+  - `capabilities()`: which features the router supports, among planes, diff pairs, length
+    matching, incremental routing and multithreading. The pipeline uses this to decide what
+    to do itself, e.g. it does the plane fanout when the router can't use planes.
+  - `available()`: a dependency check, which `boardsmith doctor` uses.
+  - `route(job) -> RouteResult`.
+- **Specctra base class:** a router that reads DSN and writes SES only has to supply its
+  command line. The base class handles DSN export, plane handling, the SES merge (keeping
+  locked items) and the import. KiCad's own `ExportSpecctraDSN` / `ImportSpecctraSES` do the
+  file conversion.
+- **Router chain:** set in config as a main router plus a finishing router, e.g.
+  `["freerouting", "astar"]`. Each router gets the previous one's unrouted list as its job.
+  The placement feedback loop (C4 step 6) only looks at `RouteResult`, so it works with any
+  router.
+- **Implementations at first:**
+  - `freerouting`: the Specctra base class plus the bundled binary;
+  - `astar`: the internal grid A* router with rip-up. It's the finisher, and works as a main
+    router for small boards.
+- **Possible later implementations** (not evaluated): other Specctra-capable routers, cloud
+  routers with an API, or a native boardsmith router.
+
+### 4.7 kicad-happy integration
+
+kicad-happy (MIT, by Andrew Klofas) is **vendored**: a frozen copy of its files lives in
+`src/boardsmith/vendor/kicad_happy/` with its license and a `VENDORED.md` that records the
+source commit. It isn't installed as a separate dependency, for three reasons:
+- It isn't a Python package (no `pyproject.toml`); it's a Claude Code plugin of scripts run by
+  path, so pip couldn't install it automatically.
+- A vendored copy is pinned and ships with boardsmith.
+- Installing it as a plugin would also register its 11 skills with Claude. Their triggers
+  overlap other skills (kicad-happy `setup.md`), so Claude might run them unprompted and
+  spend tokens.
+
+The cost of vendoring is that updates are manual: copy the new upstream tree over the old one,
+then update `VENDORED.md`.
+
+**Comparison with boardsmith's own components**
+
+kicad-happy is better at what it already does:
+- datasheet extraction and caching;
+- analyzer breadth: EMC, thermal, Gerber, SPICE model generation, tolerance, parasitics,
+  lifecycle;
+- key-free LCSC search with low token cost.
+
+Ties: JLCPCB BOM/CPL formatting (neither applies rotation offsets) and datasheet downloads
+(both failed on FTDI and analog.com in the runs).
+
+boardsmith's advantage is that it has data kicad-happy can only infer:
+- **Connectivity from the source.** kicad-happy works out connections by parsing KiCad files
+  with heuristics, which caused false positives (run 2, PP-001: a filter resistor not treated
+  as a DC path). boardsmith has the SKiDL netlist plus the kicad-cli match check.
+- **Pass/fail against requirements.** On the Konnect board, kicad-happy reported 36 of 36 SPICE
+  subcircuits passing while the anti-alias filter was far too weak for 12 bits. boardsmith's
+  `constraints.json` provides the limits.
+- **Real operating data.** Per-rail currents from the power budget fix the thermal false
+  positives (run 2: TS-001/002 at 121–132 °C).
+
+So boardsmith mostly **feeds kicad-happy better inputs** rather than replacing it.
+
+**Analysis-step registry (how to override kicad-happy components)**
+
+Each analysis step is a registry entry, following the same pattern as the fab adapters (§4.5)
+and router interface (§4.6). Its default implementation is a vendored kicad-happy script run as
+a subprocess, and boardsmith can replace any entry with its own implementation.
+- The scripts communicate through JSON files with a documented schema
+  (`skills/kicad/references/output-schema.md`). Downstream consumers (`fab_release_gate.py`,
+  `diff_analysis.py`, `cross_analysis.py`) only read that JSON. So a replacement only has to
+  write the same JSON.
+- Overrides work **one script at a time**, not one function at a time. Each script puts its own
+  directory first on `sys.path`, so replacing a function inside one would mean patching the
+  vendored files. `VENDORED.md` forbids that, except as a recorded local patch.
+- Config chooses an implementation per step, e.g. `thermal: kicad_happy` or
+  `thermal: boardsmith`.
+
+**Components used, by stage**
+
+| kicad-happy component | Where boardsmith uses it |
+|---|---|
+| `datasheets/` (extraction, cache, scoring) | B1 part-fact cache |
+| `datasheets/datasheet_verify.py` | B4 review gate |
+| `lcsc/search_lcsc.py`, `fetch_datasheet_lcsc.py` | JLCPCB `parts_catalog()`, B1 datasheet fallback |
+| `spice/` (simulator, templates, models) | B4 SPICE gate, with limits from `constraints.json` |
+| `kicad/analyze_schematic.py` | B4 / C1, on the written schematic |
+| `kicad/cross_verify.py`, `cross_analysis.py` | C5 geometry checks |
+| `kicad/analyze_pcb.py`, `emc/`, `analyze_thermal.py` | C5 |
+| `kicad/analyze_gerbers.py` | C6 Gerber check |
+| `bom/translate_bom_pnp.py` | JLCPCB `bom()` / `cpl()` (plus boardsmith rotation offsets) |
+| `kicad/fab_release_gate.py` | C6 final gate |
+
+**Deferred (cheap to add later)**
+- `spice_tolerance.py`: Monte Carlo over component tolerances, e.g. whether the filter still
+  meets spec with real parts.
+- `extract_parasitics.py`: post-layout R/L/C for a SPICE re-run after C4.
+- `spice_model_generator.py`: behavioral models for parts with no vendor model.
+- `what_if.py`: change values and re-run the affected checks. Useful for A3 scoring and the B4
+  rework loop.
+- `diff_analysis.py`: shows what changed between iterations, so a rework loop can tell whether
+  it made things better or worse.
+- `lifecycle_audit.py`: obsolete/NRND/EOL checks. Needs distributor API keys.
+- The structured deep review (`kicad/review/`): compare against skidl-skills' reviewer agent.
+- `jlcpcb/` and `pcbway/` reference docs: source data for the fab profiles, and a head start on
+  a PCBWay adapter.
+- Report helpers (`summarize_findings.py`, `export_issues.py`).
+- Not vendored: the GitHub Action (`action.yml`) for PR-based review.
+
+**Upstream fixes to propose** (better to fix them there than to work around them here):
+- resistors as DC paths in power-path checks;
+- thermal analysis that accepts supplied rail currents;
+- JLCPCB rotation offsets in `translate_bom_pnp.py`.
+
+## 5. Expected gains (estimates, not measurements)
+
+| Criterion | Baseline in runs | Expected | Why |
+|---|---|---|---|
+| Install | 30–60 min, env workarounds per tool (`setup.md` files) | One install + `doctor` | No GUI and no IPC dependence; paths configured explicitly |
+| Tokens / $ | ~50–60M, $17–19 for a routed board (script-heavy runs) | Lower, maybe ~half | Mechanical steps become scripts the model doesn't rewrite each run; the part-fact cache saves datasheet reads |
+| Wall clock | 1.5–3.75 h | ~1 h | Fewer turns; better placement → shorter Freerouting runs (two 36-min runs in kcaa 2) |
+| Exploration | 1 architecture per run | 4–8 scored candidates | A2/A3 |
+| Part breadth | stock KiCad libs, often model memory | LCSC catalog + generated libs | pcbparts + import + kipart |
+| Area | 115×85 to 150×90 mm | Smaller, amount unknown | Compaction loop; B.Cu decaps |
+| Routing | 100 % after scripted rescue | 100 % with no manual work | Same pipeline, with the placement feedback loop |
+| DFM | silkscreen, decap distance and LCSC fields often missing | Checked and gated | C5/C6 |
+
+The token and time numbers are guesses. The way to check them is to build a minimal version
+and run it on the dual-ADC prompt.
+
+## 6. Risks
+
+- **pcbnew SWIG bindings** are deprecated in favor of IPC. I believe removal is planned after
+  KiCad 10, *but I haven't confirmed the timeline*. Mitigation: keep board mutation in one
+  module, so it can be retargeted to IPC (needs a running KiCad instance, possibly headless —
+  *unverified*) or to direct s-expression writing.
+- **The routing pipeline is fragile.** It was tuned on one design with TQFP-144 and QFN-64
+  parts. BGAs, 6-layer boards and dense RF layouts are untested.
+- **The routability estimate for compaction may be poorly calibrated.** If it is, the loop
+  costs Freerouting time instead of saving it.
+- **Exploration quality depends on the calculators.** A missing calculator (e.g. EMI,
+  thermal) means candidates are ranked on an incomplete basis.
+- **The validation gap remains.** None of the designs has been checked by a human yet.
+  Matching the old runs' ERC/DRC results says little; the real test is your validation
+  checklist.
+
+## 7. Proposed build order
+
+The plan is top-down design and bottom-up build: start with the parts proven in the runs,
+then add the new ones.
+
+1. **SKiDL and schematic writer:**
+   - SKiDL: `.kicad_symdir` loading, plus the additive `fields`/`attrs` keys in
+     `build_generic_netlist`.
+   - schematizer: fix the KiCad 10 writer bugs, then add labels-only mode (all nets stubbed,
+     grid placement, no routing). Done when the dual-ADC design reaches 0 ERC errors and an
+     exact netlist match.
+2. **Physical pipeline package (C1–C6)** plus the analysis-step registry (§4.7): harden the
+   kicad-happy run 2 session scripts. Test it by
+   regenerating an existing run's board from its SKiDL file with zero manual steps.
+3. **Placement upgrade:** floorplan + algorithmic placer + compaction.
+4. **Detail stage:** port skidl-skills' agents, wire in kicad-happy's datasheet cache and
+   `datasheet_verify`, and add the constraint-driven SPICE gate.
+5. **Explore stage:** calculators, candidate enumeration, Pareto table.
+6. **Packaging:** CLI, plugin, small MCP, `doctor`. Then rerun the dual-ADC prompt and compare
+   against §2.1.
+
+## 8. Open questions for you
+
+1. ~~Name and location~~ — decided: `boardsmith`, its own repo.
+2. ~~Where the schematic writer lives~~ — decided: a labels-only mode in schematizer, which
+   is a boardsmith dependency. The netlist-match check lives in boardsmith.
+3. ~~Selection gate~~ — decided: stop after A3 for your pick; `--auto` auto-selects.
+4. ~~Fab target~~ — decided: JLCPCB only for now, behind a fab-adapter interface (§4.5) so
+   others are easy to add.
+5. ~~kicad-happy~~ — decided and done: MIT-licensed, vendored unmodified with attribution
+   (`src/boardsmith/vendor/kicad_happy/`).
+6. ~~Freerouting~~ — decided: keep it as the default main router, behind a router
+   interface (§4.6) so other routers can be swapped in.
+
+No open questions remain. The doc is ready for your approval before implementation starts.
+
+## Sources
+
+- Per-tool READMEs: `skidl-skills-tests/`, `konnect-tests/`, `kicad-happy-tests/`,
+  `kicad-mcp-server-tests/`, `kicad-mcp-pro-tests/`, `eda-agent-tests/`,
+  `kicad-ai-assistant-tests/`.
+- Run summaries: `*/dual-adc-usb-*/executive_summary.md`; costs from `*/claude_cost.txt`.
+- Scripts: `kicad-happy-tests/dual-adc-usb-2/scripts/`, `eda-agent-tests/dual-adc-usb-2/scripts/`,
+  `kicad-ai-assistant-tests/dual-adc-usb-2/scripts/`, `konnect-tests/dual-adc-usb-2/routing/`.
+- Tool-gap notes from these sessions (Claude memory): freerouting-kicad10-plane-workflow,
+  skidl-schematic-and-routing-pipeline, kcaa-design-gaps, kicad-mcp-pro-design-gaps,
+  eda-agent-kicad-gaps, kicad-mcp-server-editing-gaps.
+- skidl-skills plugin layout: `~/projects/AI/skills/skidl-skills/` (agents, scripts,
+  pcbparts MCP reference).
