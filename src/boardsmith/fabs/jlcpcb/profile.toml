@@ -1,0 +1,56 @@
+# JLCPCB capabilities used by boardsmith.
+#
+# Source: kicad-happy 2.3.1 skills/jlcpcb/SKILL.md (vendored), which summarizes JLCPCB's
+# published capability pages. Not re-checked against jlcpcb.com; values below the
+# "standard" tier may carry a surcharge. Check before ordering.
+
+default_tier = "multilayer"
+
+[tiers.standard]
+# 1-2 layer boards.
+layers = [1, 2]
+min_track = 0.127
+min_clearance = 0.127
+min_via_diameter = 0.45
+min_drill = 0.2
+annular_ring = 0.125
+hole_clearance = 0.2
+edge_clearance = 0.3   # JLCPCB recommends 0.5
+
+[tiers.multilayer]
+# 4+ layer boards.
+layers = [4, 32]
+min_track = 0.09
+min_clearance = 0.09
+min_via_diameter = 0.25
+min_drill = 0.15
+annular_ring = 0.05
+hole_clearance = 0.2
+edge_clearance = 0.3
+
+[limits]
+min_board = 6.0
+max_board = [500.0, 400.0]
+thickness = [0.4, 2.4]
+assembly_both_sides = true   # "standard" assembly; "economic" is top-only
+silk_min_height = 0.8
+
+# Rotation corrections from KiCad's footprint orientation to JLCPCB's pick-and-place
+# convention, first regex match on "lib:footprint" wins.
+# UNVERIFIED: these are kicad-happy's "typical" offsets. Families it lists as ambiguous
+# (SOIC: +90 or +270; USB-C: varies) are left out. Check JLCPCB's placement preview.
+[[rotation_offsets]]
+match = "SOT-23"
+offset = 180
+
+[[rotation_offsets]]
+match = "SOT-223"
+offset = 180
+
+[[rotation_offsets]]
+match = "QFN"
+offset = 90
+
+[[rotation_offsets]]
+match = "D_SM[ABC]"
+offset = 180

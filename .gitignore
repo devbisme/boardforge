@@ -8,3 +8,5 @@ dist/
 *-backups/
 *.kicad_prl
 fp-info-cache
+skidl_*.erc
+skidl_*.log

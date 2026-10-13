@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boardsmith"
+version = "0.1.0.dev0"
+description = "Turn a SKiDL circuit into a routed, manufacturable KiCad board, headless."
+readme = "README.md"
+# tomllib (stdlib) is used for configuration and fab profiles. KiCad 10 ships Python 3.11,
+# and the board scripts in boardsmith.pcb run under it, so 3.11 is the floor for both sides.
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Dave Vandenbout", email = "dave@vdb.name" }]
+keywords = ["KiCad", "PCB", "SKiDL", "EDA", "routing"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+# skidl: needs a release with .kicad_symdir loading and the fields/attrs/netclasses netlist
+# keys (currently the skidl 'boardsmith' branch). schematizer >= 0.2.0 has labels mode.
+dependencies = [
+    "skidl",
+    "schematizer>=0.2.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+# A few vendored kicad-happy validators use these.
+analysis = ["jsonschema", "referencing"]
+
+[project.scripts]
+boardsmith = "boardsmith.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+boardsmith = ["fabs/*/*.toml", "vendor/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+markers = [
+    "kicad: needs KiCad 10 (kicad-cli and its Python)",
+    "slow: runs the full pipeline (minutes)",
+]
+
+[tool.black]
+line-length = 100

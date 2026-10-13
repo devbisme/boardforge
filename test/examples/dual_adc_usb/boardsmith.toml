@@ -1,0 +1,114 @@
+# Dual 12-bit 10 MSPS USB ADC: kicad-happy run 2's design and floorplan, used to test the
+# physical pipeline (build-order step 2). The anchors are run 2's ANCHORS table.
+
+[design]
+file = "dual_adc_usb.py"
+top = "build"
+title = "Dual 12-bit 10 MSPS USB ADC"
+
+[board]
+size = [130, 90]
+layers = 4
+planes = { "In1.Cu" = "GND", "In2.Cu" = "+3V3" }
+pours = ["GND"]
+mounting_holes = { footprint = "MountingHole:MountingHole_3.2mm_M3_Pad_Via", inset = 3.5, net = "GND" }
+
+[rules]
+# Default net class. "Power" and "Fine" come from the SKiDL net classes.
+track_width = 0.15
+clearance = 0.15
+via_diameter = 0.45
+via_drill = 0.2
+
+[placement]
+bottom_decap_owners = "^(ICE40|IS42S16400|FT2232HL)"
+
+# Positions are mm from the board's top-left corner. value/sheet are regexes.
+[[placement.anchor]]  # BNC: body front face 12.7 mm from pad 1 -> flush with the left edge
+value = "^IN_A$"
+at = [12.7, 20.0]
+rot = 90
+[[placement.anchor]]
+value = "^IN_B$"
+at = [12.7, 66.0]
+rot = 90
+[[placement.anchor]]
+value = "^OPA810"
+sheet = "front_end1"
+at = [27.0, 21.0]
+[[placement.anchor]]
+value = "^OPA810"
+sheet = "front_end2"
+at = [27.0, 67.0]
+[[placement.anchor]]
+value = "^THS4521"
+sheet = "front_end1"
+at = [39.0, 27.0]
+[[placement.anchor]]
+value = "^THS4521"
+sheet = "front_end2"
+at = [39.0, 61.0]
+[[placement.anchor]]
+value = "^LM27762"
+at = [22.0, 44.0]
+[[placement.anchor]]
+value = "^LP5907"
+at = [38.0, 44.0]
+[[placement.anchor]]
+value = "^LTC2291"
+at = [55.0, 44.0]
+[[placement.anchor]]
+value = "^10MHz$"
+at = [48.0, 33.0]
+[[placement.anchor]]
+value = "^ICE40"
+at = [82.0, 42.0]
+[[placement.anchor]]
+value = "^25MHz$"
+at = [73.0, 59.0]
+[[placement.anchor]]
+value = "^W25Q32"
+at = [92.0, 62.0]
+[[placement.anchor]]
+value = "^AP2112"
+at = [82.0, 21.5]
+[[placement.anchor]]
+value = "^IS42S16400"
+at = [112.0, 40.0]
+[[placement.anchor]]  # rot 180: DM/DP (pins 7/8) face the USB connector
+value = "^FT2232HL"
+at = [99.0, 74.0]
+rot = 180
+[[placement.anchor]]
+value = "^93LC56B"
+at = [88.0, 83.0]
+[[placement.anchor]]  # next to OSCI/OSCO
+value = "^12MHz$"
+at = [107.95, 79.5]
+[[placement.anchor]]  # USB-B shell front face at the right edge
+value = "^USB_B$"
+at = [115.0, 71.0]
+[[placement.anchor]]  # flow-through between FT2232H DM/DP and J1
+value = "^USBLC6"
+at = [109.5, 74.5]
+[[placement.anchor]]
+value = "^TLV62569"
+at = [121.0, 57.0]
+[[placement.anchor]]
+value = "^GPIO$"
+at = [76.0, 6.0]
+rot = 90
+
+[routing]
+preroute = ["USB_DP", "USB_DM"]
+preroute_width = 0.2
+
+[checks]
+length_nets = ["ADC_CLK", "SYSCLK", "FPGA_ADC_CLK"]
+
+# Regulator loads from run 2's power budget (design_decisions.md, design_review.md); estimates,
+# upper ends taken. Without them the thermal check guesses ~0.2 A per LDO from output caps.
+[checks.rail_currents]
+"+1V2" = 0.05       # iCE40HX4K core, 30-50 mA
+"+3V3_ADC" = 0.07   # LTC2291 ~45 mA + 2x THS4521 + margin
+"+3V3" = 0.25       # FT2232H, FPGA I/O, SDRAM, flash, XOs, LEDs

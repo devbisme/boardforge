@@ -1,0 +1,27 @@
+# Tiny 2-layer design for the end-to-end test (test/test_pipeline.py).
+[design]
+file = "tiny.py"
+top = "build"
+title = "boardsmith tiny test"
+
+[fab]
+tier = "standard"
+renders = false
+
+[board]
+layers = 2
+fill = 0.2
+pours = ["GND"]
+mounting_holes = { footprint = "" }
+
+[rules]
+track_width = 0.2
+clearance = 0.2
+via_diameter = 0.6
+via_drill = 0.3
+
+[routing]
+chain = ["freerouting", "astar"]
+
+[routing.freerouting]
+max_passes = 10

@@ -1,6 +1,7 @@
 # boardsmith — design doc (draft for review)
 
-Status: **proposal, no code yet.** Written 2026-10-11 from the runs in
+Status: **approved 2026-10-12; build-order steps 1–2 implemented** (see §7 and §4.8).
+Written 2026-10-11 from the runs in
 [ai-circuit-design-tests](https://github.com/devbisme/ai-circuit-design-tests) (local: `~/projects/AI/ai-circuit-design-tests`).
 All run paths below are relative to that repo.
 Name: **boardsmith**.
@@ -338,7 +339,8 @@ eda-agent, kcaa and Konnect. Turn it into a package with tests.
 Everything that depends on the fab sits behind one interface, so the rest of the pipeline
 never names a fab. Adding a fab means adding one directory, `boardsmith/fabs/<fab>/`:
 
-- **`profile.yaml`** (data):
+- **`profile.toml`** (data; TOML rather than YAML because Python's standard library reads
+  it, including the KiCad Python that the board scripts run under, which has no PyYAML):
   - capability tiers: minimum track/space, drill sizes, annular ring, via types, board
     thickness, copper weights;
   - standard stackups with impedance data;
@@ -490,6 +492,125 @@ a subprocess, and boardsmith can replace any entry with its own implementation.
 - thermal analysis that accepts supplied rail currents;
 - JLCPCB rotation offsets in `translate_bom_pnp.py`.
 
+### 4.8 Implementation notes (build-order steps 1–2, 2026-10-13)
+
+**Step 1** (SKiDL and schematizer) is committed on each repo's `boardsmith` branch: SKiDL
+`c7a52b85`, schematizer `ca39a8e`. Neither is pushed or released, so boardsmith currently needs
+both installed from those branches. The dual-ADC design reaches 0 ERC errors and an exact
+netlist match (172 of 172 nets).
+
+**Step 2** (C1–C6 plus the analysis-step registry) is in `src/boardsmith/`. Test projects:
+`test/examples/tiny` (runs end to end in pytest, about a minute) and
+`test/examples/dual_adc_usb` (kicad-happy run 2's SKiDL file and floorplan).
+
+Dual-ADC results:
+
+| Run | Routing (C4) | C5 DRC | Release gate | Wall clock |
+|---|---|---|---|---|
+| 3 (before the fixes below) | 984 s; Freerouting left 8 unrouted, A* got to 4; 2 clearance errors | 4 unconnected, 2 errors | FAIL (3) | 1108 s |
+| 4 (`--from c4`) | 259 s; Freerouting alone, 0 unrouted | 0 errors, 0 unconnected, 0 parity | WARN | 335 s |
+| 5 (clean build) | 334 s; Freerouting left 1; A* routed it three times, each with 3–4 clearance errors | 1 unconnected | FAIL (routing; fab tier from 0.09 mm tracks) | 458 s |
+| 7 (clean) | 278 s; Freerouting 0 unrouted + 4 errors (thinned copper); A* repaired them | 1 unconnected (cleanup removed a live track) | WARN† | 395 s |
+| 8 (clean) | 388 s; Freerouting 3 + 2 errors; A* left 1 (DA10) | 2 unconnected (cleanup broke a via chain) | FAIL | 507 s |
+| 9 (clean) | 390 s; Freerouting 1; A* finished | 0 errors, 0 unconnected | WARN | 517 s |
+| 10 (clean), then C4–C6 again | 260 / 252 s; Freerouting 2 / 1; A* finished both | 0 errors, 0 unconnected | WARN | 387 / 335 s |
+| 11 (clean, repeatable C1–C4), then C4–C6 again | 419 / 441 s; Freerouting 1 (identical output); A* left 1 (DA10) | 1 unconnected | FAIL‡ | 537 / 515 s |
+
+Each run was fixed before the next: A* clearance (after 5), Freerouting narrowing and the
+board minimums (after 5), cleanup connectivity (after 7 and 8), stable UUIDs (after 9 and
+10), gate routing status (after 11). With the final code, routing completeness depends on
+the placement: of the clean placements, runs 7, 9 and 10 routed completely and runs 8 and
+11 left one ADC data line (DA10, U12 → U14) in the congested ADC-to-FPGA bus. C1–C4 now
+give the same board on every run, so a given design and config routes the same way each
+time; the remaining fix is placement (step 3: floorplan and FPGA pin swap).
+
+† kicad-happy counted the partly routed net as routed. ‡ Reported as WARN by the run;
+FAIL after the gate fix below (rerun of C6).
+
+**Where the implementation differs from §4.3–4.7**
+- Config is `boardsmith.toml` in the project directory, merged over defaults and an optional
+  `~/.config/boardsmith/config.toml` for machine paths (KiCad, Freerouting). Fab profiles
+  are TOML too (§4.5). Net names in config are SKiDL names; C1 writes the SKiDL→KiCad map.
+- The floorplan is not an LLM step yet: `[[placement.anchor]]` entries fix the main parts
+  (run 2's anchor table), and C3 is run 2's placer with its design-specific tables moved into
+  config. The placement upgrade is step 3.
+- Each board stage saves a snapshot (`build/work/built.kicad_pcb`, `placed.kicad_pcb`), so any
+  stage can be rerun (`boardsmith run --from c4`). A lock file allows one run per build
+  directory.
+- C1 runs SKiDL in a subprocess started in `build/work/`, because SKiDL opens its `.log` and
+  `.erc` files in the current directory when it is imported.
+- Stable UUIDs (`boardsmith/pcbfile.py`): KiCad saves footprints, tracks and vias sorted by
+  UUID, and new items get random ones, so the file order changed on every run. That changed
+  C3's placement (30–33 parts on the bottom side across runs 5–9) and the order of the
+  locked fanout wires in Freerouting's input. C2 (footprints, from the reference) and C4
+  before routing (tracks and vias, from their content) rewrite the saved file with derived
+  UUIDs, since pcbnew's Python API can't set one. C1–C3 now give identical boards.
+- C2 sets the minimum thermal-relief spokes to 1; KiCad's default of 2 flagged crowded decap
+  pads as errors.
+- DRC always runs with `--refill-zones`; otherwise the zones saved in the file are stale and
+  the unconnected count is wrong.
+- C4:
+  - A* prerouting uses per-net width and clearance from the net classes.
+  - Fanout skips a plane-net pad when a through-hole pad of the same net and footprint lies
+    inside it (thermal vias in an exposed pad). Without this, a GND via in front of a
+    WSON-12's pins blocked the routes out of them.
+  - Freerouting's narrowing is off (`routing.freerouting.neckdown`). It has two mechanisms:
+    neck-down at pins (0.075 mm tracks at 0.5 mm-pitch pads; widening them afterwards caused
+    clearance errors) and retrying failed connections at `neck_width_um` (default 0.1 mm),
+    which boardsmith sets to the default track width. It still thins some wires near pins to
+    0.75–0.9 of their width, so the board's minimum track width and clearance are the
+    smallest values a net class uses, never the fab's lower limits. DRC then flags thinned
+    copper and the A* finisher repairs it. The chain goes on to the finisher whenever a
+    router leaves DRC errors, not only unrouted connections.
+  - The A* finisher first removes copper that DRC finds too thin, too close or crossing
+    (`repairs` passes), then routes the unconnected pairs. Rip-up costs grow with how often a
+    net has been ripped up before, and pairs that already forced rip-ups go last. This
+    stopped two nets ripping each other up on every pass. A* keeps each obstacle at the
+    larger of the two nets' clearances, as KiCad does; with only the routed net's clearance,
+    0.1 mm-class data lines came 0.14 mm from default-class copper (run 5).
+  - Finishing adds outer-layer pours with stitching vias on a grid (`board.stitch_pitch`),
+    fiducials, and a "name Rev X" silkscreen label. Leaf copper (a track with a free end that
+    touches at most one other item, or a via with one connection) is removed until none is
+    left; locked copper is never removed. Connections count where copper overlaps, as in
+    KiCad: A* joins tracks partway along others and places vias overlapping other copper.
+    Counting only track ends removed a whole data line in run 7 and a via chain in run 8. If
+    cleanup still leaves more unconnected items than the router chain did, C4 restores the
+    board from before cleanup and warns.
+  - The placement feedback loop (§4.3 C4 step 6) only grows the board when its size was
+    estimated (`routing.grow_retries`); with a fixed size it reports the unrouted count.
+- C5 thermal: `[checks.rail_currents]` declares regulator loads. boardsmith patches them into
+  a copy of the schematic analysis (LDO dissipation, switcher loss, power-budget loads) that
+  the thermal and cross-verify steps read. kicad-happy otherwise estimates LDO load from output
+  capacitance (about 0.2 A for 20 µF), which caused run 2's TS-001/002 false positives. A
+  power budget from the detail stage should fill this table later.
+- C6 release gate: boardsmith gives `fab_release_gate.py` a copy of the PCB analysis with
+  two corrections; the vendored files stay unmodified.
+  - The footprint count leaves out board-only footprints (fiducials, mounting holes), which
+    have no schematic symbol.
+  - The routing status comes from C5's kicad-cli DRC. kicad-happy counts a net as routed
+    once it has any copper, so a partly routed net passed the gate (run 11).
+- KiCad 10 SWIG: deleting items while iterating a board's track list leaves the list stale.
+  The board scripts take a Python snapshot of the list and remove items afterwards.
+
+**Deferred or not done**
+- Routing congestion on the ADC-to-FPGA data bus: some placements leave one data line that
+  neither Freerouting nor A* rip-up completes (runs 8, 11). Step 3 (placement, FPGA pin
+  swap) is the fix; the A* rip-up loop moves the shortage between bus nets rather than
+  resolving it.
+- Pin swap and compaction (step 3).
+- FPGA constraint file and test points (C6).
+- The digital-traces-over-AFE check (C5).
+- `boardsmith setup` fetching Freerouting (step 6); for now `doctor` finds an installed copy.
+- Diff pairs: `RouteJob.diff_pairs` exists but the pipeline doesn't fill it and no router
+  uses it. The USB pair is prerouted by A* as two separate nets of the same width, not as a
+  coupled pair at a target impedance.
+- The JLCPCB rotation-offset table is kicad-happy's "typical" offsets and is unverified;
+  C6 warns when it applies one.
+- Known warnings on the dual-ADC board: 4 `via_dangling` (a signal via with copper on one
+  layer only), 34 decaps farther than 3 mm from their pin, 61 BOM lines without an LCSC
+  number, and the fab-capability warning for the deliberate 0.1 mm "Fine" net class, which
+  needs JLCPCB's advanced process.
+
 ## 5. Expected gains (estimates, not measurements)
 
 | Criterion | Baseline in runs | Expected | Why |
@@ -527,13 +648,14 @@ and run it on the dual-ADC prompt.
 The plan is top-down design and bottom-up build: start with the parts proven in the runs,
 then add the new ones.
 
-1. **SKiDL and schematic writer:**
+1. **SKiDL and schematic writer** (done; §4.8):
    - SKiDL: `.kicad_symdir` loading, plus the additive `fields`/`attrs` keys in
      `build_generic_netlist`.
    - schematizer: fix the KiCad 10 writer bugs, then add labels-only mode (all nets stubbed,
      grid placement, no routing). Done when the dual-ADC design reaches 0 ERC errors and an
      exact netlist match.
-2. **Physical pipeline package (C1–C6)** plus the analysis-step registry (§4.7): harden the
+2. **Physical pipeline package (C1–C6)** plus the analysis-step registry (§4.7) (done,
+   uncommitted; §4.8): harden the
    kicad-happy run 2 session scripts. Test it by
    regenerating an existing run's board from its SKiDL file with zero manual steps.
 3. **Placement upgrade:** floorplan + algorithmic placer + compaction.
@@ -556,7 +678,7 @@ then add the new ones.
 6. ~~Freerouting~~ — decided: keep it as the default main router, behind a router
    interface (§4.6) so other routers can be swapped in.
 
-No open questions remain. The doc is ready for your approval before implementation starts.
+No open questions remain. Approved 2026-10-12.
 
 ## Sources
 
