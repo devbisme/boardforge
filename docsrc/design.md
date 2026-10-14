@@ -805,12 +805,12 @@ Gates, in build order:
    fully-differential amplifiers. Model specs (GBW, slew, swing) come from the part-fact
    cache when it has them, else `[review.models]` in boardsmith.toml, else the gate reports
    the part as unmodelled. kicad-happy's per-subcircuit simulation stays as an analyzer.
-3. **Part-fact cache** (`boardsmith datasheets status|sync|publish|fetch`): kicad-happy's
+3. **Part-fact cache** (`boardsmith datasheets status|sync|publish`): kicad-happy's
    cache layout under `<project>/datasheets/`, plus a cross-project cache
    (`~/.cache/boardsmith/datasheets/`, `[datasheets] cache`). `sync` fills the project from
-   it (`--fresh` skips it), `publish` copies new extractions back, `fetch` runs the PDF
-   fallbacks (datasheet URL field, then LCSC). Extraction itself is LLM work (the librarian
-   agent, following kicad-happy's dispatch recipe).
+   it (`--fresh` skips it), then runs the PDF fallbacks (local `search` directories, the
+   symbol's datasheet URL, LCSC); `publish` copies new extractions back. Extraction itself
+   is LLM work (the librarian agent, following kicad-happy's dispatch recipe).
 4. **`datasheet_verify`**: kicad-happy's schematic analyzer already runs it when
    `<project>/datasheets/extracted/` exists; `review` reports its findings as a check.
 5. **Package check**: footprint pad count (and pitch, when extracted) against the part's
@@ -823,7 +823,7 @@ per constraint; HARD failures fail the gate, SOFT ones warn.
 
 **Gates 1–2 done (2026-10-14).** `boardsmith review`, `src/boardsmith/review/`. On the dual-ADC
 design (`test/examples/dual_adc_usb/constraints.json`; op-amp GBWs typed into
-`[review.models]` from memory until the cache has them):
+`[review.models]`; the THS4521's was from memory and wrong, fixed with gate 3):
 
 | Constraint | Tag | Result |
 |---|---|---|
@@ -836,6 +836,28 @@ The alias result is the defect run 2's own design notes admit ("2-pole filter, a
 rejection at 5–10 MHz is modest"). The testbench checks: an RC corner lands at −3.01 dB, and an op-amp follower into
 an FDA (Rf = Rg) gives 0 dB. Two bugs found on the way: `+3V3A` and `-3V3A` sanitised to the
 same SPICE node, and the netlist spells pin types `POWER-IN`, so no rails were detected.
+
+**Gate 3 done (2026-10-14).** `src/boardsmith/datasheets.py`, `boardsmith datasheets`. The
+project copy lives at `<project>/datasheets/` and is linked to `build/datasheets` before the
+analyzers run, where kicad-happy's `analyze_schematic` and `datasheet_verify` look. On the
+dual-ADC design (19 ICs, diodes and crystals with MPNs):
+- `sync` found 7 PDFs in a local folder and downloaded 2. The other 10 have no PDF:
+  - analog.com, ftdichip.com and nexperia.com refused the download (LTC2291, FT2232HL, BAV99);
+  - two KiCad symbols point at a sibling part's datasheet (93LCxxB → the 93xx46 sheet,
+    ASE oscillators → the ASV sheet);
+  - LCSC's search is fuzzy: it returned an op-amp sheet for the ABM8 crystal, a DC/DC
+    module for the FT2232HL, a crimp connector for the LTC2291 and terminal blocks for the
+    LEDs. kicad-happy's fetcher checks the PDF against the part LCSC found, not the one asked
+    for, so these passed it. boardsmith now discards a download whose first pages don't name
+    the part's core number (letters then digits: AP2112, FT2232, 93LC56); this rejected all 9
+    wrong PDFs and passed the 8 right ones (1 scanned PDF can't be checked and is kept).
+- One extraction made by hand (OPA810IDR, the librarian agent's job) passes kicad-happy's
+  schema (quality 89), publishes, syncs into a second project, reads back through
+  kicad-happy's `lookup()` as not stale, and `datasheet_verify` picks it up for U8 and U10.
+- `review` takes GBW and slew rate from extractions over `[review.models]`, and says so per
+  part ("U8: GBW 70 MHz from OPA810IDR datasheet p5"). Checking the typed-in figures against
+  the datasheets found the THS4521's wrong: 145 MHz is its G = 1 bandwidth; its GBW is 93 MHz
+  at 3.3 V. ALIAS-A/B move from −3.4 to −3.49 dB.
 
 ## 5. Expected gains (estimates, not measurements)
 

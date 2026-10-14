@@ -27,6 +27,7 @@ boardsmith run --from c4       # rerun from routing
 boardsmith route               # one stage: sch | board | place | route | check | fab
 boardsmith status
 boardsmith review              # B4: constraints.json against the design (after C1)
+boardsmith datasheets sync     # part-fact cache: datasheet PDFs and extractions (after C1)
 ```
 C3 also reports a routability estimate (`reports/congestion.json`: routing demand per 2.5 mm
 cell, ratsnest crossings) and, with compaction, the sizes it tried (`reports/compaction.json`). Each stage prints a short summary; details go to `build/reports/`, and
@@ -114,8 +115,33 @@ and fully-differential amplifiers need a model (unmodelled ICs are open circuits
 dc = { VCM = 0.9 }             # DC volts for nets the netlist can't give
 [review.models."^THS4521"]     # regex on value / MPN / symbol
 type = "fda"                   # or "opamp"
-gbw_hz = 145e6
+gbw_hz = 93e6                  # overridden by a part-fact cache extraction
 pins = { outp = 4, outn = 5 }  # roles the symbol's pin names don't give
+```
+
+### Part-fact cache
+Datasheet PDFs and their structured extractions, in kicad-happy's layout
+(`datasheets/manifest.json`, `<MPN>.pdf`, `extracted/<MPN>.json`), kept twice: in the project
+(`datasheets/`, what the analyzers and `review` read) and in a cache shared by all projects
+(`~/.cache/boardsmith/datasheets/`). Parts are the netlist's `MPN` fields; ICs, diodes and
+crystals by default (`prefixes`).
+```bash
+boardsmith datasheets status   # per part: PDF, extraction, quality, staleness, in the cache
+boardsmith datasheets sync     # copy from the shared cache, then find missing PDFs
+boardsmith datasheets publish  # copy the project's extractions to the shared cache
+```
+`sync` looks for a missing PDF in the `search` directories (a file named after the part,
+`OPA810.pdf` for `OPA810IDR`), then downloads it from the symbol's datasheet URL, then
+LCSC. A download whose text doesn't name the part is discarded (needs `pdftotext`). `--fresh`
+skips the shared cache, `--offline` the downloads. Extraction itself is LLM work (kicad-happy's
+extraction pipeline, `skills/datasheets/references/extraction-pipeline.md`); `publish` takes
+only extractions that match their PDF and pass kicad-happy's schema (needs `jsonschema`), and
+keeps a shared entry unless the project's is newer and scores no lower (`--force`).
+`review` takes op-amp GBW and slew rate from the extractions.
+```toml
+[datasheets]
+search = ["~/datasheets"]
+cache = "~/.cache/boardsmith/datasheets"   # "" = no shared cache
 ```
 
 ## Layout
@@ -127,6 +153,7 @@ src/boardsmith/         package
   fabs/<fab>/           fab adapters: profile.toml + adapter
   analysis/             analysis-step registry (kicad-happy analyzers by default)
   review/               B4 gate: constraints.json, SPICE path testbenches
+  datasheets.py         part-fact cache: status, sync, publish
   vendor/kicad_happy/   vendored kicad-happy (MIT)
 test/                   pytest; test/examples/ has the tiny and dual-ADC projects
 docsrc/                 documentation source (design doc)

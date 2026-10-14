@@ -99,6 +99,13 @@ DEFAULTS = {
         "models": {},
         "dc": {},  # DC volts for nets the netlist can't give, e.g. {VCM = 0.9}
     },
+    # Part-fact cache (§4.10): datasheet PDFs and extractions, kicad-happy's layout.
+    "datasheets": {
+        "dir": "datasheets",  # the project's copy, project-relative
+        "cache": "~/.cache/boardsmith/datasheets",  # shared by all projects; "" = none
+        "search": [],  # local directories with PDFs named after part numbers (OPA810.pdf)
+        "prefixes": ["U", "Q", "D", "Y", "X", "IC", "VR"],  # refs whose parts need facts
+    },
     "checks": {
         "decap_max_mm": 3.0,
         "length_nets": [],  # report the routed length of these nets (e.g. clocks)

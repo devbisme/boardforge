@@ -6,6 +6,7 @@ import json
 import os
 import time
 
+from boardsmith import datasheets
 from boardsmith.review import constraints as cons
 from boardsmith.review import spice_path
 
@@ -22,6 +23,13 @@ def review(proj):
             netlist = json.load(f)
     else:
         problems.append("no netlist: run `boardsmith sch` (C1) first")
+    facts = {}
+    if netlist:
+        store, _ = datasheets.stores(proj)
+        for comp in netlist["components"]:
+            mpn = datasheets.mpn_of(comp)
+            if mpn and mpn not in facts:
+                facts[mpn] = datasheets.amp_facts(store, mpn)
     ngspice = spice_path.find_ngspice(cfg.get("ngspice", ""))
     work = os.path.join(proj.out, "work", "spice")
     for c in cs:
@@ -31,10 +39,10 @@ def review(proj):
                  "why": "invalid constraint (see problems)"}
         elif c.get("kind") == "ac_gain" and netlist:
             r = spice_path.check(netlist, c, cfg.get("models", {}), ngspice, cfg.get("dc", {}),
-                                 os.path.join(work, c["id"]))
+                                 os.path.join(work, c["id"]), {k: v for k, v in facts.items() if v})
         elif c.get("kind") == "rail_current":
             r = {"id": c["id"], "kind": c["kind"], "tag": c["tag"], "status": "NOT CHECKED",
-                 "why": "needs regulator ratings from the part-fact cache (not built yet)"}
+                 "why": "needs the regulator rating check (gate 6, not built yet)"}
         else:
             r = {"id": c["id"], "kind": c.get("kind"), "tag": c["tag"], "status": "NOT CHECKED",
                  "why": f"no checker for kind {c.get('kind')!r}"}

@@ -15,7 +15,7 @@ import time
 import traceback
 import zipfile
 
-from boardsmith import analysis, fabs, project, routers
+from boardsmith import analysis, datasheets, fabs, project, routers
 from boardsmith.config import Project
 from boardsmith.drc import drc, erc
 from boardsmith.kicad import PKG_PARENT, Kicad
@@ -572,6 +572,9 @@ class Pipeline:
             json.dump(m, f, indent=1)
         dfm = self.fab.dfm_checks(m)
         currents = {self.knet(n, None, warnings): a for n, a in ck.get("rail_currents", {}).items()}
+        w = datasheets.expose(self.p)
+        if w:
+            warnings.append(w)
         ctx = analysis.Context(self.p.kfile(".kicad_sch"), pcb, os.path.join(self.p.reports, "analysis"),
                                rail_currents=currents)
         an = analysis.run_steps(ctx, ck["analyzers"], ck.get("steps"))

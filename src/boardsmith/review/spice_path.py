@@ -4,8 +4,9 @@ The testbench takes connectivity from boardsmith's netlist JSON (not from re-par
 files): every resistor, capacitor and inductor as itself, ferrites and polyfuses as
 near-shorts, rails as DC sources, the constraint's ``in`` net driven by an AC source.
 Op-amps use kicad-happy's behavioral model generator; fully-differential amplifiers get a
-small behavioral model here (kicad-happy has none). Model specs come from ``models``:
-{regex on value / MPN / symbol: {type: opamp|fda, gbw_hz, aol_db, slew_vus, pins}}.
+small behavioral model here (kicad-happy has none). Model specs come from ``facts`` (the
+part-fact cache: {MPN: {gbw_hz, slew_vus, source}}) over ``models`` ([review.models]:
+{regex on value / MPN / symbol: {type: opamp|fda, gbw_hz, aol_db, slew_vus, pins}}).
 Diodes, LEDs, crystals and connectors are left out (listed in the notes); ICs without a model
 are open circuits, and a path that has to cross one is reported as not checked.
 """
@@ -18,6 +19,7 @@ import shutil
 import subprocess
 import tempfile
 
+from boardsmith.datasheets import mpn_of
 from boardsmith.units import si
 
 _KH_SPICE = os.path.join(os.path.dirname(__file__), "..", "vendor", "kicad_happy", "skills", "spice",
@@ -133,9 +135,9 @@ def _node(net, ground_nets):
     return "n_" + re.sub(r"[^A-Za-z0-9_]", "_", net.replace("+", "p").replace("-", "m"))
 
 
-def testbench(netlist, c, models, dc=None, source_ohms=0.0):
+def testbench(netlist, c, models, dc=None, source_ohms=0.0, facts=None):
     """(spice text, notes, problem). ``problem`` is a reason the path can't be checked."""
-    dc = dc or {}
+    dc, facts = dc or {}, facts or {}
     pins_of = symbol_pins(netlist)
     nets = {n["name"]: n for n in netlist["nets"]}
     outs = c["out"] if isinstance(c["out"], list) else [c["out"]]
@@ -172,6 +174,14 @@ def testbench(netlist, c, models, dc=None, source_ohms=0.0):
             edges.append((a, b))
         else:
             model = find_model(comp, models)
+            f = facts.get(mpn_of(comp))
+            if f:
+                model = {"type": "opamp", **(model or {}), **{k: v for k, v in f.items() if k != "source"}}
+                if f.get("gbw_hz"):
+                    notes.append(f"{ref}: GBW {f['gbw_hz'] / 1e6:g} MHz from {f['source']}")
+            if model and not model.get("gbw_hz"):
+                notes.append(f"{ref}: no GBW (not in the part-fact cache or [review.models])")
+                model = None
             if not model:
                 touches = set(pn.values()) - rails - ground
                 if touches:
@@ -233,6 +243,7 @@ def testbench(netlist, c, models, dc=None, source_ohms=0.0):
                if any(p.get("net") in seen for p in comp["pins"])}
     path_rails = {p.get("net") for comp in netlist["components"] if comp["ref"] in on_path
                   for p in comp["pins"]}
+    notes = [n for n in notes if n.split(":")[0] in on_path]  # per-part notes, this path only
     for n in unknown:
         if n in path_rails:
             notes.append(f"rail {n}: voltage unknown, held at 0 V (set [review] dc)")
@@ -276,9 +287,9 @@ def run(text, ngspice, workdir=None, timeout=60):
     return out
 
 
-def check(netlist, c, models, ngspice, dc=None, workdir=None):
+def check(netlist, c, models, ngspice, dc=None, workdir=None, facts=None):
     """Result for one ac_gain constraint: status PASS/FAIL/NOT CHECKED, gain_db, notes."""
-    text, notes, problem = testbench(netlist, c, models, dc, c.get("source_ohms", 0.0))
+    text, notes, problem = testbench(netlist, c, models, dc, c.get("source_ohms", 0.0), facts)
     res = {"id": c["id"], "kind": c["kind"], "tag": c["tag"], "notes": notes}
     if problem:
         return {**res, "status": "NOT CHECKED", "why": problem}

@@ -134,8 +134,9 @@ rot = 90
 preroute = ["USB_DP", "USB_DM"]
 preroute_width = 0.2
 
-# B4 review gate: constraints.json. GBW figures from the TI datasheets (OPA810 70 MHz GBWP,
-# THS4521 145 MHz), quoted from memory, not yet from the part-fact cache.
+# B4 review gate: constraints.json. GBWs from the TI datasheets: OPA810 70 MHz (SBOS799E 6.5),
+# THS4521 93 MHz at 3.3 V (SBOS458H 7.5; 145 MHz is its G = 1 bandwidth). A part-fact cache
+# extraction (boardsmith datasheets) overrides these.
 [review]
 dc = { VCM = 0.9 }  # LTC2291 VCM output
 [review.models."^OPA810"]
@@ -143,7 +144,7 @@ type = "opamp"
 gbw_hz = 70e6
 [review.models."^THS4521"]
 type = "fda"
-gbw_hz = 145e6
+gbw_hz = 93e6
 pins = { outp = 4, outn = 5 }  # the symbol leaves the output pins unnamed
 
 [checks]

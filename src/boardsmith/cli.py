@@ -3,6 +3,7 @@
     boardsmith run [-C DIR] [--from c3] [--to c6]   physical pipeline C1-C6 (or a range)
     boardsmith sch|board|place|route|check|fab       one stage (C1 ... C6)
     boardsmith review                                B4 gate: constraints.json against the design
+    boardsmith datasheets status|sync|publish        part-fact cache (datasheet PDFs, extractions)
     boardsmith status                                stage results from pipeline_state.json
     boardsmith doctor                                check KiCad, Freerouting, config
 
@@ -66,6 +67,38 @@ def cmd_review(args):
     for p in rep["problems"]:
         print(f"  ! {p}")
     return 1 if rep["status"] == "FAIL" else 0
+
+
+def cmd_datasheets(args):
+    from boardsmith import datasheets as ds
+
+    proj = Project.load(args.dir)
+    try:
+        if args.action == "status":
+            rows = ds.status(proj)
+            shown = [r for r in rows if r["wanted"] or args.all]
+            print(f"{'MPN':28} {'refs':14} pdf extracted quality cache")
+            for r in shown:
+                refs = ",".join(r["refs"][:3]) + ("..." if len(r["refs"]) > 3 else "")
+                ext = ("stale" if r["stale"] else "yes") if r["extracted"] else "-"
+                print(f"{r['mpn'][:28]:28} {refs[:14]:14} {'yes' if r['pdf'] else '-':3} "
+                      f"{ext:9} {r['quality'] if r['quality'] is not None else '-':7} "
+                      f"{'yes' if r['in_cache'] else '-'}")
+            no_pdf = sum(not r["pdf"] for r in shown)
+            todo = sum(r["pdf"] and (not r["extracted"] or bool(r["stale"])) for r in shown)
+            print(f"{len(shown)} parts ({len(rows) - len(shown)} passives etc. hidden; --all shows them): "
+                  f"{no_pdf} without a PDF, {todo} to extract")
+            return 0
+        if args.action == "sync":
+            res = ds.sync(proj, fresh=args.fresh, download=not args.offline)
+        else:
+            res = ds.publish(proj, force=args.force)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"! {e}")
+        return 1
+    for k, v in res.items():
+        print(f"  {k}: {len(v)}{' ' + ', '.join(v) if v else ''}")
+    return 0
 
 
 def cmd_status(args):
@@ -132,6 +165,15 @@ def cmd_doctor(args):
             print(f"{pkg} {metadata.version(pkg)}")
         except metadata.PackageNotFoundError:
             print(f"{pkg} (version unknown)")
+    import os
+    import shutil
+
+    cache = cfg.get("datasheets", {}).get("cache", "")
+    print(f"datasheet cache: {os.path.expanduser(cache) if cache else '(none)'}")
+    print(f"pdftotext: {shutil.which('pdftotext') or 'MISSING (downloaded PDFs are not identity-checked)'}")
+    if util.find_spec("jsonschema") is None:
+        print("jsonschema: MISSING (datasheets publish can't validate extractions; "
+              "pip install 'boardsmith[analysis]')")
     return 0 if ok else 1
 
 
@@ -148,6 +190,12 @@ def main(argv=None):
     for alias, sid in ALIASES.items():
         sub.add_parser(alias, help=f"stage {sid}: {TITLES[sid]}")
     sub.add_parser("review", help="B4 gate: check constraints.json")
+    d = sub.add_parser("datasheets", help="part-fact cache: status, sync, publish")
+    d.add_argument("action", choices=("status", "sync", "publish"))
+    d.add_argument("--all", action="store_true", help="status: include passives")
+    d.add_argument("--fresh", action="store_true", help="sync: don't copy from the shared cache")
+    d.add_argument("--offline", action="store_true", help="sync: don't download PDFs")
+    d.add_argument("--force", action="store_true", help="publish: replace shared entries")
     sub.add_parser("status", help="show stage results")
     sub.add_parser("doctor", help="check the environment")
     args = ap.parse_args(argv)
@@ -161,6 +209,8 @@ def main(argv=None):
         return cmd_status(args)
     if args.cmd == "review":
         return cmd_review(args)
+    if args.cmd == "datasheets":
+        return cmd_datasheets(args)
     return cmd_doctor(args)
 
 

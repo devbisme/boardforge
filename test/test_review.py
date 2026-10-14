@@ -89,6 +89,14 @@ def test_opamp_follower_and_fda(tmp_path):
     # without the FDA model the path crosses an unmodelled IC: not checked, and says why
     r = sp.check(nl, c, {"^OPAX": models["^OPAX"]}, NGSPICE, workdir=str(tmp_path))
     assert r["status"] == "NOT CHECKED" and "U2" in r["why"]
+    # GBW from the part-fact cache when [review.models] doesn't give one
+    parts[0]["fields"]["MPN"] = "OPAX1"
+    no_gbw = {"^OPAX": {"type": "opamp"}, "^FDAX": models["^FDAX"]}
+    r = sp.check(nl, c, no_gbw, NGSPICE, dc={"VCM": 1.0}, workdir=str(tmp_path))
+    assert r["status"] == "NOT CHECKED" and any("U1: no GBW" in n for n in r["notes"])
+    r = sp.check(nl, c, no_gbw, NGSPICE, dc={"VCM": 1.0}, workdir=str(tmp_path),
+                 facts={"OPAX1": {"gbw_hz": 100e6, "source": "OPAX1 datasheet p3"}})
+    assert r["status"] == "PASS" and "U1: GBW 100 MHz from OPAX1 datasheet p3" in r["notes"]
 
 
 @needs_ngspice
