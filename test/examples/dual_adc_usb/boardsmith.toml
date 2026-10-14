@@ -134,6 +134,18 @@ rot = 90
 preroute = ["USB_DP", "USB_DM"]
 preroute_width = 0.2
 
+# B4 review gate: constraints.json. GBW figures from the TI datasheets (OPA810 70 MHz GBWP,
+# THS4521 145 MHz), quoted from memory, not yet from the part-fact cache.
+[review]
+dc = { VCM = 0.9 }  # LTC2291 VCM output
+[review.models."^OPA810"]
+type = "opamp"
+gbw_hz = 70e6
+[review.models."^THS4521"]
+type = "fda"
+gbw_hz = 145e6
+pins = { outp = 4, outn = 5 }  # the symbol leaves the output pins unnamed
+
 [checks]
 length_nets = ["ADC_CLK", "SYSCLK", "FPGA_ADC_CLK"]
 

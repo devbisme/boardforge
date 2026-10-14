@@ -2,6 +2,7 @@
 
     boardsmith run [-C DIR] [--from c3] [--to c6]   physical pipeline C1-C6 (or a range)
     boardsmith sch|board|place|route|check|fab       one stage (C1 ... C6)
+    boardsmith review                                B4 gate: constraints.json against the design
     boardsmith status                                stage results from pipeline_state.json
     boardsmith doctor                                check KiCad, Freerouting, config
 
@@ -50,6 +51,23 @@ def cmd_run(args, stages):
     return 1 if failed else 0
 
 
+def cmd_review(args):
+    from boardsmith.review.gate import review
+
+    rep = review(Project.load(args.dir))
+    print(f"[review] {rep['status']}: {rep['counts']} (reports/review.json)")
+    for r in rep["results"]:
+        detail = (f"{r['gain_db']} dB at {r['at_hz']:g} Hz, limit {r['limit']}" if "gain_db" in r
+                  else r.get("why", ""))
+        print(f"  {r['status']:11} {r['tag']:7} {r['id']}: {detail}")
+        if args.verbose:
+            for n in r.get("notes", []):
+                print(f"      {n}")
+    for p in rep["problems"]:
+        print(f"  ! {p}")
+    return 1 if rep["status"] == "FAIL" else 0
+
+
 def cmd_status(args):
     proj = Project.load(args.dir)
     st = State(proj.state_file)
@@ -91,6 +109,10 @@ def cmd_doctor(args):
         good, msg = routers.get(name).available(cfg)
         print(f"router {name}: {'ok' if good else 'MISSING'} {msg}")
         ok &= good
+    from boardsmith.review.spice_path import find_ngspice
+
+    ng = find_ngspice(cfg.get("review", {}).get("ngspice", ""))
+    print(f"ngspice: {ng or 'MISSING (the review gate reports SPICE checks as not checked)'}")
     try:
         f = fabs.get(cfg["fab"]["name"], cfg["fab"].get("tier"))
         print(f"fab: {f.name} tier {f.tier_name}")
@@ -125,6 +147,7 @@ def main(argv=None):
     r.add_argument("--to", dest="end", default="c6", choices=STAGES)
     for alias, sid in ALIASES.items():
         sub.add_parser(alias, help=f"stage {sid}: {TITLES[sid]}")
+    sub.add_parser("review", help="B4 gate: check constraints.json")
     sub.add_parser("status", help="show stage results")
     sub.add_parser("doctor", help="check the environment")
     args = ap.parse_args(argv)
@@ -136,6 +159,8 @@ def main(argv=None):
         return cmd_run(args, (ALIASES[args.cmd],))
     if args.cmd == "status":
         return cmd_status(args)
+    if args.cmd == "review":
+        return cmd_review(args)
     return cmd_doctor(args)
 
 

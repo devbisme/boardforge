@@ -90,6 +90,15 @@ DEFAULTS = {
         # Board size estimated and connections left unrouted: loosen the fill and redo C2-C4.
         "grow_retries": 1,
     },
+    # B4 review gate (§4.10): constraints.json checked against the design.
+    "review": {
+        "constraints": "constraints.json",  # project-relative
+        "ngspice": "",  # path; default: on PATH
+        # Amplifier models for the SPICE path gate: {regex on value/MPN/symbol = {type =
+        # "opamp"|"fda", gbw_hz, aol_db, slew_vus, pins = {role = pin number}}}.
+        "models": {},
+        "dc": {},  # DC volts for nets the netlist can't give, e.g. {VCM = 0.9}
+    },
     "checks": {
         "decap_max_mm": 3.0,
         "length_nets": [],  # report the routed length of these nets (e.g. clocks)

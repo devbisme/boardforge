@@ -1,0 +1,24 @@
+{
+ "schema": "boardsmith-constraints",
+ "version": 1,
+ "constraints": [
+  {"id": "RANGE-A", "kind": "ac_gain", "tag": "HARD",
+   "why": "+-10 V (20 Vpp) must fit the LTC2291's 2 Vpp differential input: gain <= -20 dB, and use most of it",
+   "in": "VIN_A", "out": ["AIN_AP", "AIN_AN"], "at_hz": 1e3, "min_db": -21.0, "max_db": -19.8},
+  {"id": "RANGE-B", "kind": "ac_gain", "tag": "HARD",
+   "why": "as RANGE-A, channel B",
+   "in": "VIN_B", "out": ["AIN_BP", "AIN_BN"], "at_hz": 1e3, "min_db": -21.0, "max_db": -19.8},
+  {"id": "FLAT-A", "kind": "ac_gain", "tag": "SOFT",
+   "why": "passband flat within 0.5 dB to 1 MHz (attenuator compensation; C_Trim at mid-range)",
+   "in": "VIN_A", "out": ["AIN_AP", "AIN_AN"], "at_hz": 1e6, "ref_hz": 1e3, "min_db": -0.5, "max_db": 0.5},
+  {"id": "ALIAS-A", "kind": "ac_gain", "tag": "ASSUMED",
+   "why": "12-bit capture at 10 MSPS: content at Nyquist (5 MHz) at least 40 dB down (1 LSB would be -72 dB)",
+   "in": "VIN_A", "out": ["AIN_AP", "AIN_AN"], "at_hz": 5e6, "ref_hz": 1e3, "max_db": -40},
+  {"id": "ALIAS-B", "kind": "ac_gain", "tag": "ASSUMED",
+   "why": "as ALIAS-A, channel B",
+   "in": "VIN_B", "out": ["AIN_BP", "AIN_BN"], "at_hz": 5e6, "ref_hz": 1e3, "max_db": -40},
+  {"id": "RAIL-3V3", "kind": "rail_current", "tag": "ASSUMED",
+   "why": "run 2 power budget: FT2232H, FPGA I/O, SDRAM, flash, XOs, LEDs",
+   "net": "+3V3", "max_a": 0.25}
+ ]
+}

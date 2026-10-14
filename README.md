@@ -26,6 +26,7 @@ boardsmith run                 # C1..C6 -> build/
 boardsmith run --from c4       # rerun from routing
 boardsmith route               # one stage: sch | board | place | route | check | fab
 boardsmith status
+boardsmith review              # B4: constraints.json against the design (after C1)
 ```
 C3 also reports a routability estimate (`reports/congestion.json`: routing demand per 2.5 mm
 cell, ratsnest crossings) and, with compaction, the sizes it tried (`reports/compaction.json`). Each stage prints a short summary; details go to `build/reports/`, and
@@ -97,6 +98,26 @@ preroute = ["USB_DP", "USB_DM"]
 ```
 Net names in the config are SKiDL names; boardsmith maps them to KiCad's.
 
+### Review gate (B4)
+`boardsmith review` checks `constraints.json` (project root) against the design after C1 and
+writes `build/reports/review.json`: PASS / FAIL / NOT CHECKED per constraint. A HARD failure
+fails the gate; SOFT and ASSUMED failures, and anything not checked, warn.
+```json
+{"schema": "boardsmith-constraints", "version": 1, "constraints": [
+  {"id": "ALIAS-A", "kind": "ac_gain", "tag": "ASSUMED", "why": "content at Nyquist 40 dB down",
+   "in": "VIN_A", "out": ["AIN_AP", "AIN_AN"], "at_hz": 5e6, "ref_hz": 1e3, "max_db": -40}]}
+```
+`ac_gain` runs an ngspice testbench of the whole path, built from the SKiDL netlist. Op-amps
+and fully-differential amplifiers need a model (unmodelled ICs are open circuits):
+```toml
+[review]
+dc = { VCM = 0.9 }             # DC volts for nets the netlist can't give
+[review.models."^THS4521"]     # regex on value / MPN / symbol
+type = "fda"                   # or "opamp"
+gbw_hz = 145e6
+pins = { outp = 4, outn = 5 }  # roles the symbol's pin names don't give
+```
+
 ## Layout
 ```
 src/boardsmith/         package
@@ -105,6 +126,7 @@ src/boardsmith/         package
   routers/              router interface: Freerouting (Specctra), A*
   fabs/<fab>/           fab adapters: profile.toml + adapter
   analysis/             analysis-step registry (kicad-happy analyzers by default)
+  review/               B4 gate: constraints.json, SPICE path testbenches
   vendor/kicad_happy/   vendored kicad-happy (MIT)
 test/                   pytest; test/examples/ has the tiny and dual-ADC projects
 docsrc/                 documentation source (design doc)

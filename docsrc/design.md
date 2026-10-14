@@ -780,6 +780,63 @@ B.Cu on the anchor table), which probably accounts for the extra vias.
 Step 3 is complete; the stretch thresholds and the region/anchor behaviour want a second
 design to confirm them.
 
+### 4.10 Step 4 (Detail): decisions and plan
+
+Decided 2026-10-14:
+- **Agents run as a Claude Code plugin; deterministic work is CLI.** boardsmith ships the
+  ported skidl-skills agents (MIT, Nick Kraakman; copied with attribution like kicad-happy)
+  and the `/new-circuit`-style driver as plugin content. Every check the agents need is a
+  `boardsmith` command, so the gates behave the same with or without an agent.
+- **Gates first, agents second** (bottom-up), each tested on the dual-ADC design.
+- **`constraints.json` gets a minimal versioned schema now**; Explore (step 5) extends it.
+
+Gates, in build order:
+1. **`constraints.json` v1** (project root):
+   `{"schema": "boardsmith-constraints", "version": 1, "constraints": [...]}`, each entry
+   `{id, kind, tag: HARD|SOFT|ASSUMED, why, ...kind fields}`. Kinds in v1:
+   - `ac_gain`: `in` net, `out` net or `[p, n]` pair, `at_hz`, `min_db`/`max_db`, optional
+     `ref_hz` (gain relative to that frequency). Covers anti-alias attenuation at Nyquist.
+   - `rail_current`: `net`, `max_a` (replaces `[checks.rail_currents]` over time).
+   Unknown kinds are reported as not checked, not as errors.
+2. **SPICE path gate** (`boardsmith review`, check `spice`): an ngspice testbench of the
+   whole path, built from the SKiDL netlist (exact connectivity, not re-parsed KiCad files):
+   every R, C and L as itself, rails as DC sources, the `in` net driven by an AC source,
+   op-amps from kicad-happy's behavioral model generator, a small behavioral model for
+   fully-differential amplifiers. Model specs (GBW, slew, swing) come from the part-fact
+   cache when it has them, else `[review.models]` in boardsmith.toml, else the gate reports
+   the part as unmodelled. kicad-happy's per-subcircuit simulation stays as an analyzer.
+3. **Part-fact cache** (`boardsmith datasheets status|sync|publish|fetch`): kicad-happy's
+   cache layout under `<project>/datasheets/`, plus a cross-project cache
+   (`~/.cache/boardsmith/datasheets/`, `[datasheets] cache`). `sync` fills the project from
+   it (`--fresh` skips it), `publish` copies new extractions back, `fetch` runs the PDF
+   fallbacks (datasheet URL field, then LCSC). Extraction itself is LLM work (the librarian
+   agent, following kicad-happy's dispatch recipe).
+4. **`datasheet_verify`**: kicad-happy's schematic analyzer already runs it when
+   `<project>/datasheets/extracted/` exists; `review` reports its findings as a check.
+5. **Package check**: footprint pad count (and pitch, when extracted) against the part's
+   datasheet package.
+6. **Budget recheck**: `rail_current` constraints against the regulator's rated output
+   current from the cache.
+
+`boardsmith review` writes `reports/review.json` with PASS/FAIL/NOT CHECKED per check and
+per constraint; HARD failures fail the gate, SOFT ones warn.
+
+**Gates 1–2 done (2026-10-14).** `boardsmith review`, `src/boardsmith/review/`. On the dual-ADC
+design (`test/examples/dual_adc_usb/constraints.json`; op-amp GBWs typed into
+`[review.models]` from memory until the cache has them):
+
+| Constraint | Tag | Result |
+|---|---|---|
+| RANGE-A/B: gain at 1 kHz in −21 … −19.8 dB (±10 V into 2 Vpp) | HARD | PASS, −20.5 dB |
+| FLAT-A: 1 MHz within ±0.5 dB of 1 kHz | SOFT | FAIL, +1.21 dB (attenuator compensation, trimmer at mid-range) |
+| ALIAS-A/B: Nyquist (5 MHz) ≥ 40 dB below 1 kHz | ASSUMED | FAIL, −3.4 dB |
+| RAIL-3V3 | ASSUMED | NOT CHECKED (needs the cache) |
+
+The alias result is the defect run 2's own design notes admit ("2-pole filter, alias
+rejection at 5–10 MHz is modest"). The testbench checks: an RC corner lands at −3.01 dB, and an op-amp follower into
+an FDA (Rf = Rg) gives 0 dB. Two bugs found on the way: `+3V3A` and `-3V3A` sanitised to the
+same SPICE node, and the netlist spells pin types `POWER-IN`, so no rails were detected.
+
 ## 5. Expected gains (estimates, not measurements)
 
 | Criterion | Baseline in runs | Expected | Why |
