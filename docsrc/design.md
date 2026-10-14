@@ -709,8 +709,35 @@ on and a display present, the CLI routed, exited 0 and left an empty session fil
 dual-ADC board (the tiny board still saved), leaving A* the whole board. boardsmith now
 passes `--gui.enabled=false` and reports an empty session file as a router failure.
 
-Still to do in step 3: calibrating `max_util` against routes that fail, and a decap rule for
-the non-plane rails.
+**Congestion calibration** (`max_util`). The regions floorplan above (USB-B no longer tied
+to its edge) placed and routed at forced scales, Freerouting alone, no compaction search:
+
+| Scale | Placement check | RUDY max | p95 | Crossings | Unrouted | Freerouting |
+|---|---|---|---|---|---|---|
+| 0.9 (anchor table) | fits | 0.95 | 0.37 | 352 | 0 | 240 s |
+| 0.9 (regions) | fits | 0.99 | 0.37 | 416 | 1 | 263 s |
+| 0.85 | a part outside its region | 0.97 | 0.37 | 387 | 1 | 792 s |
+| 0.8 | a part outside its region | 0.88 | 0.42 | 423 | 4 | 1111 s |
+| 0.75 | anchor overlap | 1.02 | 0.44 | 541 | 5 (+3 DRC) | 634 s |
+| 0.7 | DRC overlaps | 0.99 | 0.51 | 653 | 11 (+24 DRC) | 1677 s |
+
+- The peak cell doesn't predict routing: it's the ADC pin field at every scale (0.88–1.02),
+  and the 0.8 board, with the lowest peak, left 4 connections. No `max_util` separates these.
+- The failed connections aren't in the hot cells. They are local: VBUS between the ESD part
+  and the fuse (0.85); the FT2232H crystal, VPHY and a strap resistor (0.8); a charge-pump
+  cap 15 mm from its IC (0.75); the FT2232H–FPGA bus (0.7). Shrinking squeezes passives away
+  from their pins and parts out of their regions; 2.5 mm RUDY over MST edges can't see that.
+- p95 and crossings rise with the failures (0.37 → 0.51, 387 → 653) but too gently to set a
+  threshold from one design (0.9 passes at 0.37–0.41, 0.8 fails at 0.42).
+- The placement checks already stop compaction where routing starts to fail (0.85 here:
+  region overflow; anchor overlaps on the anchor table). Router time triples first.
+
+So `max_util` stays at 1.0 as a backstop for boards whose channels really are full (none
+yet), and `reports/congestion.json` gains a histogram (cells over 0.3 … 0.9) for later
+designs. A better predictor of these failures is how far C3 had to move passives from their
+targets; that, not RUDY, is the next calibration candidate.
+
+Still to do in step 3: a decap rule for the non-plane rails.
 
 ## 5. Expected gains (estimates, not measurements)
 
