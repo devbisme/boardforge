@@ -59,7 +59,19 @@ DEFAULTS = {
     },
     "placement": {
         "anchor": [],  # [{ref|value, sheet, at=[x,y], rot, side}]
+        # Floorplan: [{sheet, value (regexes), rect = [x0, y0, x1, y1] mm from the top-left
+        # corner | area = the same as fractions of the board}]. Unanchored ICs are packed
+        # into the first region that matches; their passives follow them.
+        "region": [],
+        "ic_gap": 6.0,  # mm between packed ICs
         "bottom_decap_owners": "",  # regex on owner value: their decaps go on B.Cu
+        # Other decaps that can't get within checks.decap_max_mm on the front may go on B.Cu
+        # (off by default: parts on both sides cost more to assemble).
+        "decap_bottom": False,
+        # Pin swap (FPGA/MCU I/O): [{part (value regex) | ref, map (JSON file the design reads,
+        # project-relative), group = [{pins = [...], partner = value regex}]}]. C3 writes
+        # {SKiDL net: pin} to the map; when it changes, C1-C3 run again.
+        "pin_swap": [],
     },
     "routing": {
         "chain": ["freerouting", "astar"],

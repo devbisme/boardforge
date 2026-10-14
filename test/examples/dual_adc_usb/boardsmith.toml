@@ -22,8 +22,26 @@ via_drill = 0.2
 
 [placement]
 bottom_decap_owners = "^(ICE40|IS42S16400|FT2232HL)"
+decap_bottom = true
 
 # Positions are mm from the board's top-left corner. value/sheet are regexes.
+# FPGA I/O banks: C3 reorders the signals on these pins to match the placement and writes
+# fpga_pinmap.json, which dual_adc_usb.py reads. Clock and config pins are fixed (not listed).
+[[placement.pin_swap]]
+part = "^ICE40"
+map = "fpga_pinmap.json"
+[[placement.pin_swap.group]]
+pins = [1, 2, 3, 4, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 28, 29, 31,
+        32, 33, 34]
+partner = "^LTC2291"
+[[placement.pin_swap.group]]
+pins = [73, 74, 75, 76, 78, 79, 80, 81, 82, 83, 84, 85, 87, 88, 90, 91, 93, 94, 95, 96, 97, 98,
+        99, 101, 102, 104, 105, 106, 107, 110, 112, 113, 114, 115, 116, 117, 118, 119]
+partner = "^IS42S16400"
+[[placement.pin_swap.group]]
+pins = [37, 38, 39, 41, 42, 43, 44, 45, 47, 48, 52, 55, 56, 60, 61, 62, 63, 64]
+partner = "^FT2232HL"
+
 [[placement.anchor]]  # BNC: body front face 12.7 mm from pad 1 -> flush with the left edge
 value = "^IN_A$"
 at = [12.7, 20.0]

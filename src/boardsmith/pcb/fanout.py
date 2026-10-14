@@ -2,7 +2,11 @@
 stub (exposed pads get a via grid unless the footprint has thermal vias), so the main router never routes plane nets. Re-running
 on a routed board serves only pads that have no copper yet.
 
-Job: pcb, plane_nets, via_diameter, via_drill, clearance, stub_width, edge_clearance.
+Vias for a pad stay out of the escape band (``escape_band`` mm) outside the signal pins of
+other fine-pitch ICs when there is room elsewhere, so they don't block those pins' traces.
+
+Job: pcb, plane_nets, via_diameter, via_drill, clearance, stub_width, edge_clearance,
+escape_band.
 """
 
 import math
@@ -101,7 +105,19 @@ def fanout(job):
             if vn == p["net"] and dist_pt_rect(vx, vy, p["rect"]) == 0:
                 served.add(id(p))
 
-    def via_ok(x, y, net, side):
+    # Escape bands: the area just outside the signal pins of fine-pitch ICs, where their
+    # traces leave. Vias for other parts' pads keep out of it when they can.
+    LANE = job.get("escape_band", 1.2)
+    lanes = [q for q in pads if q["fp"].GetPadCount() > 16 and q["net"]
+             and q["net"] not in PLANE_NETS and not q["net"].startswith("unconnected")
+             and not q["th"]]
+
+    def in_lane(x, y, ref):
+        return any(q["ref"] != ref and dist_pt_rect(x, y, q["rect"]) < LANE for q in lanes)
+
+    def via_ok(x, y, net, side, ref=None):
+        if ref is not None and in_lane(x, y, ref):
+            return False
         r = VIA_D / 2
         if x - r < ex0 + EDGE_CLR or x + r > ex1 - EDGE_CLR or y - r < ey0 + EDGE_CLR or y + r > ey1 - EDGE_CLR:
             return False
@@ -181,6 +197,19 @@ def fanout(job):
                     vias.append((x, y, net))
             added += 1
             continue
+        # A pin next to its own exposed pad (QFN ground pins): a stub inwards to it, which
+        # leaves the escape lanes outside the pin row free.
+        ep = [q for q in pads if q["ref"] == p["ref"] and q["net"] == net and q is not p
+              and q["side"] == side and q["rect"][2] - q["rect"][0] > 1.0
+              and q["rect"][3] - q["rect"][1] > 1.0 and dist_pt_rect(px, py, q["rect"]) < 1.5]
+        if ep and fp.GetPadCount() > 4:
+            q = min(ep, key=lambda q: dist_pt_rect(px, py, q["rect"]))
+            r = q["rect"]
+            tx, ty = min(max(px, r[0]), r[2]), min(max(py, r[1]), r[3])  # nearest point of it
+            if stub_ok(px, py, tx, ty, net, side, p):
+                stubs.append((px, py, tx, ty, side, net))
+                added += 1
+                continue
         # Outward direction.
         if fp.GetPadCount() <= 4:
             others = [q for q in fp.Pads() if q.GetNumber() != pad.GetNumber()]
@@ -198,12 +227,19 @@ def fanout(job):
         ux, uy = dx / d, dy / d
         vx_, vy_ = -uy, ux  # lateral
         half = max(w, h) / 2 if fp.GetPadCount() > 4 else (abs(ux) * w + abs(uy) * h) / 2
+        def candidates():
+            for along in [half + VIA_D / 2 + 0.1 + k * 0.15 for k in range(12)]:
+                for lat in (0, 0.25, -0.25, 0.5, -0.5, 0.75, -0.75, 1.0, -1.0):
+                    yield px + ux * along + vx_ * lat, py + uy * along + vy_ * lat
+            # all directions as a last resort
+            for along in [half + VIA_D / 2 + 0.1 + k * 0.2 for k in range(10)]:
+                for a in range(0, 360, 20):
+                    yield px + along * math.cos(math.radians(a)), py + along * math.sin(math.radians(a))
+
         done = False
-        for along in [half + VIA_D / 2 + 0.1 + k * 0.15 for k in range(12)]:
-            for lat in (0, 0.25, -0.25, 0.5, -0.5, 0.75, -0.75, 1.0, -1.0):
-                x = px + ux * along + vx_ * lat
-                y = py + uy * along + vy_ * lat
-                if via_ok(x, y, net, side) and stub_ok(px, py, x, y, net, side, p):
+        for lane_ref in (p["ref"], None):  # first outside other ICs' escape bands
+            for x, y in candidates():
+                if via_ok(x, y, net, side, lane_ref) and stub_ok(px, py, x, y, net, side, p):
                     vias.append((x, y, net))
                     stubs.append((px, py, x, y, side, net))
                     added += 1
@@ -211,20 +247,6 @@ def fanout(job):
                     break
             if done:
                 break
-        if not done:
-            # Try all directions as a last resort.
-            for along in [half + VIA_D / 2 + 0.1 + k * 0.2 for k in range(10)]:
-                for a in range(0, 360, 20):
-                    x = px + along * math.cos(math.radians(a))
-                    y = py + along * math.sin(math.radians(a))
-                    if via_ok(x, y, net, side) and stub_ok(px, py, x, y, net, side, p):
-                        vias.append((x, y, net))
-                        stubs.append((px, py, x, y, side, net))
-                        added += 1
-                        done = True
-                        break
-                if done:
-                    break
         if not done:
             failed.append(f"{fp.GetReference()}.{pad.GetNumber()} ({net})")
 

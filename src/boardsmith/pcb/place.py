@@ -1,13 +1,19 @@
 """C3: placement. Run 2's placer, with its design-specific tables moved into the job.
 
 1. Anchors (from the floorplan in boardsmith.toml) fix the main parts.
-2. Other multi-pin parts with no anchor are shelf-packed in sheet order.
+2. Other multi-pin parts with no anchor are shelf-packed in sheet order, each inside the
+   first floorplan region whose sheet/value regexes match it (else anywhere on the board).
 3. Passives go next to the pad they serve, repeated so chains (R -> C -> IC) resolve.
-   Decaps of ``bottom_decap_owners`` go on B.Cu under the pin row.
+   Decaps go first, smallest value first, so the high-frequency ones get the spots nearest
+   the pins. Decaps of ``bottom_decap_owners`` go on B.Cu under the pin row; with
+   ``decap_bottom``, any other decap between plane nets that can't get within
+   ``decap_max_mm`` of its pin on the front goes on B.Cu if that is closer.
 4. Leftovers spiral out from the board centre.
 
-Job: pcb, anchors [{ref|value, sheet, at, rot, side}], plane_nets, rails, ground_nets,
-bottom_decap_owners (regex), keepout (mm around the edge).
+Job: pcb, anchors [{ref|value, sheet, at, rot, side}],
+regions [{sheet, value, rect (mm from the top-left corner) | area (fractions of the board)}],
+ic_gap (mm between shelf-packed parts), plane_nets, rails, ground_nets,
+bottom_decap_owners (regex), decap_bottom (bool), decap_max_mm, keepout (mm around the edge).
 """
 
 import math
@@ -15,7 +21,7 @@ import re
 
 import pcbnew
 
-from boardsmith.pcb.common import MM, TOMM, courtyard_rect, edge_rect, overlap, pt, run
+from boardsmith.pcb.common import MM, TOMM, courtyard_rect, edge_rect, farads, overlap, pt, run
 
 
 def place(job):
@@ -37,20 +43,38 @@ def place(job):
         for n in ns:
             net_size[n] = net_size.get(n, 0) + 1
 
-    occupied = {"F": [courtyard_rect(fps[r], 0.5) for r in holes], "B": []}
+    occupied = {"F": [courtyard_rect(fps[r], 0.5) for r in holes],
+                "B": [courtyard_rect(fps[r], 0.5) for r in holes]}
     placed = {}
+
+    def inside_box(b, box):
+        return b[0] >= box[0] and b[1] >= box[1] and b[2] <= box[2] and b[3] <= box[3]
 
     def inside(b):
         return (b[0] >= ex0 + keep and b[1] >= ey0 + keep and b[2] <= ex1 - keep
                 and b[3] <= ey1 - keep)
 
     def put(fp, x, y, rot, bottom=False):
-        if bottom and not fp.IsFlipped():
+        if bottom != fp.IsFlipped():
             fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
         fp.SetOrientationDegrees(rot)
         fp.SetPosition(pt(x, y))
 
-    def try_place(fp, tx, ty, rot, max_r=25.0, step=0.25, bottom=False):
+    def pin_rects(fp):
+        """Through-hole pads of fp, which take up the other side too (mm, with clearance)."""
+        out = []
+        for p in fp.Pads():
+            if p.GetAttribute() in (pcbnew.PAD_ATTRIB_PTH, pcbnew.PAD_ATTRIB_NPTH):
+                bb = p.GetBoundingBox()
+                out.append((TOMM(bb.GetLeft()) - 0.5, TOMM(bb.GetTop()) - 0.5,
+                            TOMM(bb.GetRight()) + 0.5, TOMM(bb.GetBottom()) + 0.5))
+        return out
+
+    def claim(fp, rect, bottom):
+        occupied["B" if bottom else "F"].append(rect)
+        occupied["F" if bottom else "B"].extend(pin_rects(fp))
+
+    def try_place(fp, tx, ty, rot, max_r=25.0, step=0.25, bottom=False, box=None):
         occ = occupied["B" if bottom else "F"]
         put(fp, tx, ty, rot, bottom)
         r = 0.0
@@ -61,8 +85,9 @@ def place(job):
                 x, y = tx + r * math.cos(a), ty + r * math.sin(a)
                 fp.SetPosition(pt(x, y))
                 b = courtyard_rect(fp, 0.25)
-                if inside(b) and not any(overlap(b, o) for o in occ):
-                    occ.append(b)
+                if inside(b) and (box is None or inside_box(b, box)) \
+                        and not any(overlap(b, o) for o in occ):
+                    claim(fp, b, bottom)
                     return True
             r += step
         return False
@@ -82,24 +107,77 @@ def place(job):
         bottom = a.get("side", "F") == "B"
         put(fp, ex0 + a["at"][0], ey0 + a["at"][1], a.get("rot", 0), bottom)
         placed[hits[0]] = fp
-        occupied["B" if bottom else "F"].append(courtyard_rect(fp, 0.25))
+        claim(fp, courtyard_rect(fp, 0.25), bottom)
 
-    # ---- 2. unanchored multi-pin parts: shelf-pack in sheet order
+    # ---- 2. unanchored multi-pin parts: shelf-pack in sheet order, inside their region
+    def region_of(fp):
+        for g in job.get("regions", []):
+            if (re.search(g.get("sheet", ""), fp.GetSheetname() or "")
+                    and re.search(g.get("value", ""), fp.GetValue())):
+                if "rect" in g:
+                    x0, y0, x1, y1 = g["rect"]
+                    return ex0 + x0, ey0 + y0, ex0 + x1, ey0 + y1
+                fx0, fy0, fx1, fy1 = g["area"]
+                w, h = ex1 - ex0, ey1 - ey0
+                return ex0 + fx0 * w, ey0 + fy0 * h, ex0 + fx1 * w, ey0 + fy1 * h
+        return None
+
+    board_box = (ex0 + keep, ey0 + keep, ex1 - keep, ey1 - keep)
     big = [r for r in parts if r not in placed and parts[r].GetPadCount() > 4]
     big.sort(key=lambda r: (parts[r].GetSheetname() or "", -parts[r].GetPadCount(), r))
-    if big:
-        x, y, row_h = ex0 + keep + 6, ey0 + keep + 6, 0.0
-        for r in big:
-            fp = parts[r]
-            put(fp, 0, 0, 0)
-            b = courtyard_rect(fp)
-            bw, bh = b[2] - b[0], b[3] - b[1]
-            if x + bw + 6 > ex1 - keep and x > ex0 + keep + 6:
-                x, y, row_h = ex0 + keep + 6, y + row_h + 6, 0.0
-            if try_place(fp, x + bw / 2, y + bh / 2, 0, max_r=40):
+    shelves = {}  # box -> [x, y, row height]
+    gap = job.get("ic_gap", 6.0)
+    for r in big:
+        fp = parts[r]
+        box = region_of(fp) or board_box
+        m = gap if box is board_box else 1.0  # margin inside the box
+        x, y, row_h = shelves.setdefault(box, [box[0] + m, box[1] + m, 0.0])
+        put(fp, 0, 0, 0)
+        b = courtyard_rect(fp)
+        bw, bh = b[2] - b[0], b[3] - b[1]
+        if x + bw + m > box[2] and x > box[0] + m:
+            x, y, row_h = box[0] + m, y + row_h + gap, 0.0
+        tx, ty = x + bw / 2, y + bh / 2
+        if box is not board_box:
+            # inside the region if it fits, else as near it as the board allows
+            if try_place(fp, tx, ty, 0, max_r=40, box=box):
                 placed[r] = fp
-            x += bw + 6
-            row_h = max(row_h, bh)
+            else:
+                warnings.append(f"{r} ({fp.GetValue()}) doesn't fit its region")
+        if r not in placed and try_place(fp, tx, ty, 0, max_r=40):
+            placed[r] = fp
+        shelves[box] = [x + bw + gap, y, max(row_h, bh)]
+
+    def pad_dist(fp, pad):
+        """Distance (mm) from fp's pad on pad's net to pad."""
+        q = [q for q in fp.Pads() if q.GetNetname() == pad.GetNetname()]
+        if not q:
+            return math.inf
+        (ax, ay), (bx, by) = (q[0].GetPosition(), pad.GetPosition())
+        return TOMM(math.hypot(ax - bx, ay - by))
+
+    def closer_on_bottom(fp, pad, owner):
+        """fp is placed on the front, too far from pad: move it to B.Cu under the pad if that
+        is closer. Returns True if moved."""
+        front = pad_dist(fp, pad)
+        if front <= decap_max:
+            return False
+        pos, rot = fp.GetPosition(), fp.GetOrientationDegrees()
+        rect = occupied["F"].pop()
+        cx, cy = TOMM(owner.GetPosition().x), TOMM(owner.GetPosition().y)
+        px, py = TOMM(pad.GetPosition().x), TOMM(pad.GetPosition().y)
+        d = math.hypot(px - cx, py - cy) or 1.0
+        bot_rot = 90 if abs(px - cx) > abs(py - cy) else 0
+        dist = -1.0 if owner.GetPadCount() > 3 else 0.0  # just inside the pin row
+        if try_place(fp, px + dist * (px - cx) / d, py + dist * (py - cy) / d, bot_rot,
+                     max_r=decap_max, bottom=True):
+            if pad_dist(fp, pad) < front:
+                return True
+            occupied["B"].pop()
+        put(fp, 0, 0, rot)
+        fp.SetPosition(pos)
+        occupied["F"].append(rect)
+        return False
 
     # ---- 3. passives next to the pad they serve
     pad_use = {}
@@ -107,7 +185,19 @@ def place(job):
     def owner_pads(net):
         return [(r, p) for r, fp in placed.items() for p in fp.Pads() if p.GetNetname() == net]
 
-    remaining = [r for r in parts if r not in placed]
+    def is_decap(ref):
+        """A capacitor between two rails (not a ferrite or fuse in a rail)."""
+        return (ref.startswith("C") and farads(parts[ref].GetValue()) is not None
+                and parts[ref].GetPadCount() == 2 and len(nets_of[ref]) == 2
+                and set(nets_of[ref]) <= rails)
+
+    def place_key(ref):
+        f = farads(parts[ref].GetValue()) if is_decap(ref) else None
+        return (0, f if f is not None else math.inf) if is_decap(ref) else (1, 0)
+
+    decap_max = job.get("decap_max_mm", 3.0)
+    decap_bottom = job.get("decap_bottom", False)
+    remaining = sorted((r for r in parts if r not in placed), key=place_key)  # stable: keeps ref order
     for _ in range(6):
         progress = False
         for ref in list(remaining):
@@ -137,8 +227,8 @@ def place(job):
             px, py = TOMM(pad.GetPosition().x), TOMM(pad.GetPosition().y)
             dx, dy = px - cx, py - cy
             d = math.hypot(dx, dy) or 1.0
-            is_decap = len(my_nets) == 2 and set(my_nets) <= rails
-            bottom = bool(is_decap and bottom_owner_rx and re.search(bottom_owner_rx, owner.GetValue()))
+            decap = is_decap(ref)
+            bottom = bool(decap and bottom_owner_rx and re.search(bottom_owner_rx, owner.GetValue()))
             if bottom:
                 dist = -1.8  # under the package, just inside the pin row
             elif owner.GetPadCount() <= 3:
@@ -172,17 +262,24 @@ def place(job):
                     ux, uy = mx - cx, my - cy
                     du = math.hypot(ux, uy) or 1.0
                     tx, ty = mx + 2.2 * ux / du, my + 2.2 * uy / du
-            if try_place(fp, tx, ty, rot, bottom=bottom):
+            ok = try_place(fp, tx, ty, rot, bottom=bottom)
+            # Only plane decaps: their vias come from the fanout; a decap on another rail
+            # would need a routed via next to a crowded pin row.
+            if ok and decap and decap_bottom and not bottom and set(my_nets) <= plane_nets | ground:
+                ok = closer_on_bottom(fp, pad, owner) or ok
+            if ok:
                 placed[ref] = fp
                 remaining.remove(ref)
                 progress = True
         if not progress:
             break
 
-    # ---- 4. leftovers
+    # ---- 4. leftovers: from the centre of their region, else of the board
     failed = []
     for ref in remaining:
-        if try_place(parts[ref], (ex0 + ex1) / 2, (ey0 + ey1) / 2, 0, max_r=max(ex1 - ex0, ey1 - ey0)):
+        box = region_of(parts[ref]) or (ex0, ey0, ex1, ey1)
+        if try_place(parts[ref], (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, 0,
+                     max_r=max(ex1 - ex0, ey1 - ey0)):
             warnings.append(f"{ref} ({parts[ref].GetValue()}) placed with no anchor or partner")
         else:
             failed.append(ref)

@@ -10,18 +10,10 @@ Job: pcb, rails, ground_nets, decap_max_mm, bulk_uf, length_nets.
 """
 
 import math
-import re
 
 import pcbnew
 
-from boardsmith.pcb.common import TOMM, edge_rect, run, xy
-
-
-def _farads(value):
-    m = re.match(r"^\s*([0-9.]+)\s*([pnuµm]?)F?", value or "")
-    if not m:
-        return None
-    return float(m.group(1)) * {"p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6, "m": 1e-3, "": 1}[m.group(2)]
+from boardsmith.pcb.common import TOMM, edge_rect, farads, run, xy
 
 
 def main(job):
@@ -53,7 +45,7 @@ def main(job):
             continue
         checked += 1
         if best[0] > limit:
-            f = _farads(fp.GetValue())
+            f = farads(fp.GetValue())
             row = {"ref": fp.GetReference(), "value": fp.GetValue(), "net": rail_pad.GetNetname(),
                    "nearest": best[1], "mm": round(best[0], 1)}
             (far_bulk if f is not None and f >= bulk else far).append(row)

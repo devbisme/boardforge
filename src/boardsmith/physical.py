@@ -25,6 +25,9 @@ from boardsmith.state import STAGES, State
 
 RAIL_RX = re.compile(r"^([+-]?\d+V\d*\w*|V(CC|DD|EE|SS|BUS|IN|BAT|REF)\w*|\w*GND\w*|\w*VSS\w*)$", re.I)
 GROUND_RX = re.compile(r"(GND|VSS)", re.I)
+# DRC types on a placed, unrouted board that mean the placement itself is wrong.
+PLACEMENT_DRC = {"shorting_items", "courtyards_overlap", "pth_inside_courtyard", "clearance",
+                 "hole_clearance", "copper_edge_clearance"}
 
 
 class StageError(RuntimeError):
@@ -271,9 +274,11 @@ class Pipeline:
         if not os.path.exists(self.built_board):
             raise StageError("no board: run C2 first")
         routers.copy_board(self.built_board, self.p.kfile(".kicad_pcb"))
-        job = {"pcb": self.p.kfile(".kicad_pcb"), "anchors": pl["anchor"],
+        job = {"pcb": self.p.kfile(".kicad_pcb"), "anchors": pl["anchor"], "regions": pl["region"],
+               "ic_gap": pl["ic_gap"],
                "plane_nets": list(self.plane_nets(warnings).values()), "rails": rails,
                "ground_nets": ground, "bottom_decap_owners": pl["bottom_decap_owners"],
+               "decap_bottom": pl["decap_bottom"], "decap_max_mm": self.cfg["checks"]["decap_max_mm"],
                "keepout": self.cfg["rules"]["edge_clearance"] + 0.2}
         r = self.k.pcb("place", job, self.p.work)
         if "placed" not in r:
@@ -282,9 +287,66 @@ class Pipeline:
         routers.copy_board(self.p.kfile(".kicad_pcb"), self.placed_board)
         warnings += r.get("warnings", [])
         summary = {k: r.get(k) for k in ("anchored", "placed", "bottom_side", "unplaced")}
+        if pl["pin_swap"]:
+            summary["pins_swapped"], summary["pinmap_changed"] = self.pin_swap(warnings)
+        summary["congestion"] = self.congestion(self.placed_board, warnings)
+        # Overlaps the router can't fix: pads of different nets touching (e.g. a part on the
+        # back under a through-hole pin), parts on top of each other.
+        rep = drc(self.k, self.p.kfile(".kicad_pcb"), os.path.join(self.p.reports, "drc_placed.json"))
+        bad = {t.split(":", 1)[1]: n for t, n in rep.get("by_type", {}).items()
+               if t.split(":", 1)[1] in PLACEMENT_DRC}
+        if bad:
+            summary["overlaps"] = bad
+            warnings.append(f"placement overlaps: {bad} (reports/drc_placed.json)")
         if r.get("unplaced"):
             return "warn", summary, warnings + [f"{len(r['unplaced'])} parts could not be placed"]
         return ("warn" if warnings else "done"), summary, warnings
+
+    def congestion(self, board, warnings):
+        """Routability estimate of a placed board (pcb/congestion.py); the full result goes
+        to reports/congestion.json."""
+        b, rules = self.cfg["board"], self.cfg["rules"]
+        planes = self.plane_nets(warnings)
+        job = {"pcb": board, "plane_nets": sorted(set(planes.values())),
+               "pitch": rules["track_width"] + rules["clearance"],
+               "signal_layers": max(1, b["layers"] - len(planes)), "cell": 2.5}
+        r = self.k.pcb("congestion", job, self.p.work)
+        if not r.get("ok"):
+            warnings.append(f"congestion estimate: {r.get('error')}")
+            return None
+        with open(os.path.join(self.p.reports, "congestion.json"), "w") as f:
+            json.dump(r, f, indent=1)
+        if r["over_1"]:
+            warnings.append(f"{r['over_1']} placement cells need more routing than they have "
+                            f"(max {r['max']}x); see reports/congestion.json")
+        return {k: r[k] for k in ("max", "p95", "over_1", "crossings", "ratsnest_mm")}
+
+    def pin_swap(self, warnings):
+        """Recompute each [[placement.pin_swap]] map from the placed board and write the ones
+        that changed. Returns (signals moved, any map file changed)."""
+        to_skidl = {v: k for k, v in self.net_map().items()}
+        moved, changed = 0, False
+        for sw in self.cfg["placement"]["pin_swap"]:
+            job = {"pcb": self.placed_board, "part": sw.get("part"), "ref": sw.get("ref"),
+                   "groups": sw["group"]}
+            r = self.k.pcb("pinswap", job, self.p.work)
+            if not r.get("ok"):
+                warnings.append(f"pin swap {sw.get('ref') or sw.get('part')!r}: {r.get('error')}")
+                continue
+            warnings += r.get("warnings", [])
+            new = {to_skidl.get(net, net): int(n) if n.isdigit() else n for net, n in r["map"].items()}
+            path = os.path.join(self.p.root, sw["map"])
+            old = None
+            if os.path.exists(path):
+                with open(path) as f:
+                    old = json.load(f)
+            if new != old:
+                moved += sum(1 for k, v in new.items() if (old or {}).get(k) != v)
+                with open(path, "w") as f:
+                    json.dump(new, f, indent=1, sort_keys=True)
+                    f.write("\n")
+                changed = True
+        return moved, changed
 
     # ------------------------------------------------------------------ C4
     def route_job(self, board, workdir, warnings):
@@ -552,6 +614,17 @@ class Pipeline:
         for sid in stages:
             res = self.run_stage(sid, fns[sid])
             out.append(res)
+            if sid == "c3" and res["summary"].get("pinmap_changed"):
+                # The design reads the new pin map: rebuild it once. Placement anchors don't
+                # depend on the map, so a second change means the swap doesn't converge.
+                for s in ("c1", "c2", "c3"):
+                    res = self.run_stage(s, fns[s])
+                    out.append(res)
+                    if res["status"] == "failed":
+                        return out
+                if res["summary"].get("pinmap_changed"):
+                    res["warnings"].append("pin map changed again after the rebuild")
+                    self.state.record("c3", "warn", res["summary"], res["warnings"], res["seconds"])
             while (sid == "c4" and res["summary"].get("unrouted") and retries > 0 and "c2" in stages
                    and self.state.stage("c2").get("summary", {}).get("size_estimated")):
                 retries -= 1

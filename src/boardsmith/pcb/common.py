@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 import sys
 import traceback
 
@@ -60,6 +61,14 @@ def courtyard_rect(fp, margin=0.0):
         bb = fp.GetBoundingBox(False)
     x0, y0, x1, y1 = rect(bb)
     return x0 - margin, y0 - margin, x1 + margin, y1 + margin
+
+
+def farads(value):
+    """Capacitance of a value string such as "100nF" or "2.2u"; None if it isn't one."""
+    m = re.match(r"^\s*([0-9.]+)\s*([pnuµm]?)F?", value or "")
+    if not m:
+        return None
+    return float(m.group(1)) * {"p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6, "m": 1e-3, "": 1}[m.group(2)]
 
 
 def overlap(a, b):

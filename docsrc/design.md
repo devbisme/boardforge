@@ -611,6 +611,62 @@ FAIL after the gate fix below (rerun of C6).
   number, and the fab-capability warning for the deliberate 0.1 mm "Fine" net class, which
   needs JLCPCB's advanced process.
 
+### 4.9 Step 3: placement upgrade (decided 2026-10-13)
+
+Decisions:
+- **Floorplan:** `[[placement.region]]` entries in `boardsmith.toml` (sheet or value regex →
+  rectangle, optional board edge). A person or the agent driving boardsmith writes them;
+  boardsmith makes no LLM calls, so runs stay repeatable. Anchors stay for exact positions.
+- **Pin swap:** `[[placement.pin_swap]]` names the part, its swappable pin groups and each
+  group's partner part. C3 writes `{SKiDL net: pin}` to a JSON file that the SKiDL design
+  reads (as `dual_adc_usb.py` already did), and when the map changes, C1–C3 run again once.
+  The SKiDL source isn't rewritten.
+- **Order:** fix the measured failures first: pin swap (the DA10 congestion), decap
+  placement (32–34 decaps over 3 mm), a congestion estimate; then regions and compaction.
+
+Pin-swap rule: the signals going to the partner are ordered around the partner's outline
+(clockwise from the widest gap between them) and the group's pins around the part's own outline
+the other way; an order-preserving assignment then picks the pins (shortest total distance).
+Run 2's `pin_swap.py` ordered signals by angle seen from the FPGA centre, which reverses the
+pads on the ADC's top and bottom edges: their traces leave upwards or downwards and then turn,
+so those groups crossed (DA6–DA11 and OFA went to FPGA pins 1–9 in reverse). When some partner
+pads face away from the part (the SDRAM's far TSOP row), the whole group keeps run 2's
+order seen from the part's centre: those traces drop through vias under the package, and the
+outline order sent them around its ends (runs 12–13 left SDRAM nets unrouted).
+
+Results so far (dual-ADC board, same anchors as §4.8):
+
+| Run | Change | Routing (C4) | Decaps > 3 mm | Gate |
+|---|---|---|---|---|
+| 11 | (step 2 baseline) | 1 unrouted (DA10) | 32 | FAIL |
+| 12 | pin swap, outline order for every group | 3 (DA7, DA9, SD_A11) | 32 | FAIL |
+| 12b | + QFN ground pins stub into the exposed pad | 2 (SDRAM) | 32 | FAIL |
+| 13 / 13b | + decaps first, back-side fallback; 13b: through-hole pins block the back | 13: shorts; 13b: 2 | 10 | FAIL |
+| 14 | run 2 order when partner pads face away; back-side fallback for plane decaps only | 2 (DB3, CFG_MISO) | 27 | FAIL |
+| 14b, 15 (clean) | + fanout vias keep out of other ICs' escape bands | **0**, Freerouting alone, 240 s | 27 | WARN |
+
+What each failure turned out to be:
+- The unrouted ADC lines were boxed in at the pin row, not short of channel space further
+  out: fanout vias of the ADC's own ground pins (12b), then a back-side decap's vias under
+  the ADC (14), sat in the lane its signal pins escape through. Ground pins next to the
+  exposed pad now connect inwards to it, and vias for other parts' pads stay 1.2 mm from a
+  fine-pitch IC's signal pads when there is room elsewhere.
+- Run 13's shorts: the placer didn't count the pins of front through-hole parts (BNCs, USB-B,
+  regulator thermal vias) as taken on the back, and treated a fuse between two rails as a
+  decap. C3 now runs DRC on the placed board and warns about shorts and overlaps before
+  routing (`reports/drc_placed.json`).
+- Moving decaps on non-plane rails to the back added a routed via at a crowded pin row
+  (+3V3_ADC, 13b), so the fallback is limited to plane decaps. Of the 27 decaps still over
+  3 mm, most are on non-plane rails or 1–2.2 µF.
+
+Also added: `reports/congestion.json` (RUDY demand per 2.5 mm cell, ratsnest crossings) in
+C3, for the compaction loop; `[[placement.region]]` (unanchored ICs packed into a region).
+Regions aren't exercised by the dual-ADC board (every IC is anchored).
+
+Still to do in step 3: compaction (shrink and re-place, scored by the congestion estimate,
+confirmed by a route); exercising regions on a design without anchors; a decap rule for the
+non-plane rails.
+
 ## 5. Expected gains (estimates, not measurements)
 
 | Criterion | Baseline in runs | Expected | Why |
@@ -654,11 +710,11 @@ then add the new ones.
    - schematizer: fix the KiCad 10 writer bugs, then add labels-only mode (all nets stubbed,
      grid placement, no routing). Done when the dual-ADC design reaches 0 ERC errors and an
      exact netlist match.
-2. **Physical pipeline package (C1–C6)** plus the analysis-step registry (§4.7) (done,
-   uncommitted; §4.8): harden the
+2. **Physical pipeline package (C1–C6)** plus the analysis-step registry (§4.7) (done;
+   §4.8): harden the
    kicad-happy run 2 session scripts. Test it by
    regenerating an existing run's board from its SKiDL file with zero manual steps.
-3. **Placement upgrade:** floorplan + algorithmic placer + compaction.
+3. **Placement upgrade:** floorplan + algorithmic placer + compaction (in progress; §4.9).
 4. **Detail stage:** port skidl-skills' agents, wire in kicad-happy's datasheet cache and
    `datasheet_verify`, and add the constraint-driven SPICE gate.
 5. **Explore stage:** calculators, candidate enumeration, Pareto table.

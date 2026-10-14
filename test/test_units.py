@@ -308,3 +308,63 @@ def test_gate_routing_status_comes_from_drc():
     assert pcb["connectivity"]["unrouted_count"] == 1 and not pcb["connectivity"]["routing_complete"]
     assert analysis.routing_from_drc(pcb, {"unconnected_items": []}) == []
     assert pcb["connectivity"]["routing_complete"]
+
+
+def test_pin_swap_orders_bus_around_both_outlines(monkeypatch):
+    import importlib
+    import sys
+    import types
+
+    stub = types.ModuleType("pcbnew")
+    stub.FromMM = stub.ToMM = lambda v: v
+    monkeypatch.setitem(sys.modules, "pcbnew", stub)
+    for m in ("boardsmith.pcb.common", "boardsmith.pcb.pinswap"):
+        sys.modules.pop(m, None)
+    ps = importlib.import_module("boardsmith.pcb.pinswap")
+    # A QFN at the origin with pads on its top, right and bottom edges; an FPGA to the right
+    # with a column of pins on its left edge (y grows downwards, as in KiCad).
+    pads = [((-1, -2), "t0"), ((1, -2), "t1"), ((2, -1), "r0"), ((2, 1), "r1"),
+            ((1, 2), "b1"), ((-1, 2), "b0")]
+    sig = ps._around(pads, (0, 0))
+    assert sig == ["t0", "t1", "r0", "r1", "b1", "b0"]  # clockwise from the free left side
+    pins = [((10, -3 + i), str(i + 1)) for i in range(8)]
+    pin = ps._around(pins, (14, 0))[::-1]
+    assert pin == [str(i + 1) for i in range(8)]  # top to bottom down the left edge
+    pos = dict((k, p) for p, k in pads)
+    pin_xy = dict((k, p) for p, k in pins)
+    chosen = ps._ordered_assign([pos[s] for s in sig], [pin_xy[n] for n in pin])
+    assert chosen == sorted(chosen) and len(set(chosen)) == len(sig)
+    # The leftmost top pad goes outermost (top pin): its trace leaves upwards and wraps
+    # around the others.
+    assert chosen[0] == 0
+
+
+def test_pin_swap_far_row_of_a_tsop_faces_away(monkeypatch):
+    import importlib
+    import sys
+    import types
+
+    stub = types.ModuleType("pcbnew")
+    stub.FromMM = stub.ToMM = lambda v: v
+    monkeypatch.setitem(sys.modules, "pcbnew", stub)
+    for m in ("boardsmith.pcb.common", "boardsmith.pcb.pinswap"):
+        sys.modules.pop(m, None)
+    ps = importlib.import_module("boardsmith.pcb.pinswap")
+
+    class P:
+        def __init__(self, x, y):
+            self.x, self.y = x, y
+
+        def GetPosition(self):
+            return self
+
+    class Part(P):
+        def Pads(self):
+            # TSOP: two long rows at x = +-5, pins from y = -10 to 10
+            return [P(self.x + sx, self.y + y) for sx in (-5, 5) for y in range(-10, 11)]
+
+    tsop = Part(30, 0)
+    fpga = (0, 0)  # to the left
+    assert not ps._faces_away((25, -10), tsop, fpga)  # near row, even at its end
+    assert ps._faces_away((35, -10), tsop, fpga)  # far row, at its end
+    assert ps._faces_away((35, 0), tsop, fpga)

@@ -644,7 +644,7 @@ def fpga(adc_bus, fifo_d, fifo_ctl, spi, ft_gpio, sd, fpga_adc_clk, sysclk, ctl,
     u.p[21] += fpga_adc_clk  # GBIN6, bank 3 (ADC capture domain)
     u.p[49] += sysclk  # GBIN5, bank 2 (PLL -> SDRAM)
 
-    # Default pin assignment by bank; scripts/pin_swap.py may override it (fpga_pinmap.json) to
+    # Default pin assignment by bank; boardsmith C3 pin swap overrides it (fpga_pinmap.json) to
     # match the PCB placement and minimise bus crossings.
     adc_sigs = adc_bus["da"][:] + [adc_bus["ofa"]] + adc_bus["db"][:] + [adc_bus["ofb"]] + [ctl["adc_shdn"]]
     sd_sigs = (sd["dq"][:] + [sd["dqml"], sd["dqmh"], sd["we_n"], sd["cas_n"], sd["ras_n"], sd["cs_n"],

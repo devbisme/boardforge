@@ -52,6 +52,15 @@ def test_all_stages_ran(tiny):
         {s: r["summary"] for s, r in res.items() if r["status"] == "failed"}
 
 
+def test_placement_reports_congestion(tiny):
+    proj, res = tiny
+    s = res["c3"]["summary"]
+    assert not s["unplaced"] and "overlaps" not in s
+    c = s["congestion"]
+    assert c["ratsnest_mm"] > 0 and 0 < c["max"] < 1.0  # a small, loose board
+    assert os.path.exists(os.path.join(proj.out, "reports", "congestion.json"))
+
+
 def test_schematic_parity_and_erc(tiny):
     _, res = tiny
     s = res["c1"]["summary"]

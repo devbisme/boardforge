@@ -27,7 +27,8 @@ boardsmith run --from c4       # rerun from routing
 boardsmith route               # one stage: sch | board | place | route | check | fab
 boardsmith status
 ```
-Each stage prints a short summary; details go to `build/reports/`, and
+C3 also reports a routability estimate (`reports/congestion.json`: routing demand per 2.5 mm
+cell, ratsnest crossings). Each stage prints a short summary; details go to `build/reports/`, and
 `build/pipeline_state.json` records every stage. Outputs:
 - `build/kicad/`: KiCad project (labels-only schematic, board, net classes, lib tables)
 - `build/fab/`: Gerber zip, JLCPCB BOM and CPL
@@ -68,6 +69,17 @@ clearance = 0.15
 value = "^LTC2291"             # regex on value (or ref = "U3"), optional sheet regex
 at = [55.0, 44.0]
 rot = 0
+
+[[placement.region]]           # floorplan: unanchored ICs of a sheet go in this area
+sheet = "front_end"            # regex on sheet (and/or value)
+area = [0.0, 0.0, 0.4, 1.0]    # fractions of the board (or rect = [x0, y0, x1, y1] mm)
+
+[[placement.pin_swap]]         # FPGA/MCU pin swap; C3 writes the map, the design reads it
+part = "^ICE40"
+map = "fpga_pinmap.json"       # {SKiDL net: pin}; C1-C3 rerun when it changes
+[[placement.pin_swap.group]]
+pins = [1, 2, 3, 4, 7, 8]      # swappable pins
+partner = "^LTC2291"           # the part these signals go to
 
 [routing]
 chain = ["freerouting", "astar"]
