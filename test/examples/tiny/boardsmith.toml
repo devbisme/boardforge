@@ -29,3 +29,8 @@ max_passes = 10
 [placement.compact]
 enabled = true
 min_scale = 0.7
+
+# The LDO's sheet goes in the right half (regions scale with the compacted board).
+[[placement.region]]
+sheet = "regulator"
+area = [0.5, 0.0, 1.0, 1.0]

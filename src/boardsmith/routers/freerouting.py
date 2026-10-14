@@ -46,8 +46,10 @@ class Freerouting(SpecctraRouter):
         if not exe:
             raise FileNotFoundError("Freerouting not found")
         cmd = ["java", "-jar", exe] if exe.endswith(".jar") else [exe]
+        # The GUI setting comes from ~/.config/freerouting/freerouting.json; left on (with a
+        # display), Freerouting can exit after routing without writing the session file.
         cmd += ["-de", dsn, "-do", ses, "-mp", str(job.options.get("max_passes", 40)),
-                "-mt", str(job.threads)]
+                "-mt", str(job.threads), "--gui.enabled=false"]
         if not job.options.get("neckdown"):
             # Two separate mechanisms: neck-down at pins, and retrying a failed connection at
             # neck_width_um (default 100). Retries are kept at the default track width.

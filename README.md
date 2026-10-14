@@ -75,8 +75,8 @@ edge = "left"                  # optional: keep the offset from this edge when c
 enabled = true                 # confirm by routing (stepping back up if it fails)
 min_scale = 0.6
 
-[[placement.region]]           # floorplan: unanchored ICs of a sheet go in this area
-sheet = "front_end"            # regex on sheet (and/or value)
+[[placement.region]]           # floorplan: unanchored ICs of a sheet go in this area, near
+sheet = "front_end"            # the parts they connect to; regex on sheet (and/or value);
 area = [0.0, 0.0, 0.4, 1.0]    # fractions of the board (or rect = [x0, y0, x1, y1] mm)
 
 [[placement.pin_swap]]         # FPGA/MCU pin swap; C3 writes the map, the design reads it

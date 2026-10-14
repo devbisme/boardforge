@@ -1,8 +1,10 @@
 """C3: placement. Run 2's placer, with its design-specific tables moved into the job.
 
 1. Anchors (from the floorplan in boardsmith.toml) fix the main parts.
-2. Other multi-pin parts with no anchor are shelf-packed in sheet order, each inside the
-   first floorplan region whose sheet/value regexes match it (else anywhere on the board).
+2. Other multi-pin parts go inside the first floorplan region whose sheet/value regexes
+   match them, most-connected first, each at the centroid of its connections to parts
+   already placed and in the rotation that shortens them most. Parts with no region are
+   shelf-packed in sheet order.
 3. Passives go next to the pad they serve, repeated so chains (R -> C -> IC) resolve.
    Decaps go first, smallest value first, so the high-frequency ones get the spots nearest
    the pins. Decaps of ``bottom_decap_owners`` go on B.Cu under the pin row; with
@@ -151,7 +153,8 @@ def place(job):
                             f"to clear another part")
         placed[hits[0]] = fp
 
-    # ---- 2. unanchored multi-pin parts: shelf-pack in sheet order, inside their region
+    # ---- 2. unanchored multi-pin parts: in their region, else shelf-packed
+    gap = job.get("ic_gap", 6.0)
     def region_of(fp):
         for g in job.get("regions", []):
             if (re.search(g.get("sheet", ""), fp.GetSheetname() or "")
@@ -164,31 +167,79 @@ def place(job):
                 return ex0 + fx0 * w, ey0 + fy0 * h, ex0 + fx1 * w, ey0 + fy1 * h
         return None
 
-    board_box = (ex0 + keep, ey0 + keep, ex1 - keep, ey1 - keep)
+    def owner_pads(net):
+        return [(r, p) for r, fp in placed.items() for p in fp.Pads() if p.GetNetname() == net]
+
+    def pad_mm(p):
+        return TOMM(p.GetPosition().x), TOMM(p.GetPosition().y)
+
+    def links(fp):
+        """[(pad, [placed pads on its net])] for fp's signal pads (rails and ground pull
+        everything towards the regulators, so they don't count)."""
+        out = []
+        for p in fp.Pads():
+            n = p.GetNetname()
+            if n and n not in rails and n not in ground and not n.startswith("unconnected"):
+                q = [pad_mm(q) for _, q in owner_pads(n)]
+                if q:
+                    out.append((p, q))
+        return out
+
+    def place_in_region(fp, box):
+        """At the centroid of fp's placed connections, clamped into box, in the rotation
+        that makes those connections shortest."""
+        ls = links(fp)
+        pts = [q for _, qs in ls for q in qs]
+        if pts:
+            tx, ty = sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts)
+        else:
+            tx, ty = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        best = None
+        for rot in (0, 90, 180, 270):
+            put(fp, 0, 0, rot)
+            b = courtyard_rect(fp)
+            hw, hh = (b[2] - b[0]) / 2 + 1.0, (b[3] - b[1]) / 2 + 1.0
+            x = min(max(tx, box[0] + hw), box[2] - hw) - (b[0] + b[2]) / 2
+            y = min(max(ty, box[1] + hh), box[3] - hh) - (b[1] + b[3]) / 2
+            fp.SetPosition(pt(x, y))
+            cost = sum(min(math.dist(pad_mm(p), q) for q in qs) for p, qs in ls)
+            if best is None or cost < best[0] - 1e-6:
+                best = (cost, rot, x, y)
+        _, rot, x, y = best
+        return try_place(fp, x, y, rot, max_r=40, box=box)
+
     big = [r for r in parts if r not in placed and parts[r].GetPadCount() > 4]
-    big.sort(key=lambda r: (parts[r].GetSheetname() or "", -parts[r].GetPadCount(), r))
-    shelves = {}  # box -> [x, y, row height]
-    gap = job.get("ic_gap", 6.0)
-    for r in big:
+    # Parts with a region go where their connections pull them, most-connected first.
+    # (Shelf-packing them in sheet order left the dual-ADC front ends at the top of their
+    # regions, away from their BNCs, and the USB ESD part away from the connector.)
+    todo = [r for r in big if region_of(parts[r])]
+    while todo:
+        r = max(todo, key=lambda r: (len(links(parts[r])), parts[r].GetPadCount(), r))
+        todo.remove(r)
         fp = parts[r]
-        box = region_of(fp) or board_box
-        m = gap if box is board_box else 1.0  # margin inside the box
-        x, y, row_h = shelves.setdefault(box, [box[0] + m, box[1] + m, 0.0])
+        if place_in_region(fp, region_of(fp)):
+            placed[r] = fp
+            continue
+        warnings.append(f"{r} ({fp.GetValue()}) doesn't fit its region")
+        b = region_of(fp)
+        if try_place(fp, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2, 0, max_r=40):
+            placed[r] = fp
+
+    # The others are shelf-packed in sheet order.
+    board_box = (ex0 + keep, ey0 + keep, ex1 - keep, ey1 - keep)
+    rest = [r for r in big if r not in placed and not region_of(parts[r])]
+    rest.sort(key=lambda r: (parts[r].GetSheetname() or "", -parts[r].GetPadCount(), r))
+    x, y, row_h = board_box[0] + gap, board_box[1] + gap, 0.0
+    for r in rest:
+        fp = parts[r]
         put(fp, 0, 0, 0)
         b = courtyard_rect(fp)
         bw, bh = b[2] - b[0], b[3] - b[1]
-        if x + bw + m > box[2] and x > box[0] + m:
-            x, y, row_h = box[0] + m, y + row_h + gap, 0.0
-        tx, ty = x + bw / 2, y + bh / 2
-        if box is not board_box:
-            # inside the region if it fits, else as near it as the board allows
-            if try_place(fp, tx, ty, 0, max_r=40, box=box):
-                placed[r] = fp
-            else:
-                warnings.append(f"{r} ({fp.GetValue()}) doesn't fit its region")
-        if r not in placed and try_place(fp, tx, ty, 0, max_r=40):
+        if x + bw + gap > board_box[2] and x > board_box[0] + gap:
+            x, y, row_h = board_box[0] + gap, y + row_h + gap, 0.0
+        if try_place(fp, x + bw / 2, y + bh / 2, 0, max_r=40):
             placed[r] = fp
-        shelves[box] = [x + bw + gap, y, max(row_h, bh)]
+        x, row_h = x + bw + gap, max(row_h, bh)
 
     def pad_dist(fp, pad):
         """Distance (mm) from fp's pad on pad's net to pad."""
@@ -223,9 +274,6 @@ def place(job):
 
     # ---- 3. passives next to the pad they serve
     pad_use = {}
-
-    def owner_pads(net):
-        return [(r, p) for r, fp in placed.items() for p in fp.Pads() if p.GetNetname() == net]
 
     def is_decap(ref):
         """A capacitor between two rails (not a ferrite or fuse in a rail)."""

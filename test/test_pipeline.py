@@ -5,6 +5,7 @@ Run with ``pytest -m kicad``. Skipped when KiCad 10 isn't found.
 
 import json
 import os
+import re
 import shutil
 
 import pytest
@@ -71,6 +72,17 @@ def test_compaction_shrinks_and_routes(tiny):
     if comp["scale"] < 1.0:
         assert res["c2"]["summary"]["size"] == comp["size"]
     assert res["c4"]["summary"]["unrouted"] == 0  # confirmed by routing (or stepped back up)
+
+
+def test_region_holds_its_part(tiny):
+    proj, res = tiny
+    assert not any("region" in w for w in res["c3"]["warnings"])
+    with open(os.path.join(proj.out, "kicad", "tiny.kicad_pcb")) as f:
+        pcb = f.read()
+    xs = [float(x) for x in re.findall(r'\(gr_line\s+\(start ([\d.]+) [\d.]+\)', pcb)]
+    u1 = re.search(r'\(footprint "Package_TO_SOT_SMD:SOT-23-5"\s+\(layer "F.Cu"\)\s+'
+                   r'\(uuid "[^"]+"\)\s+\(at ([\d.]+) ', pcb)
+    assert (min(xs) + max(xs)) / 2 < float(u1.group(1)) < max(xs)  # right half (config)
 
 
 def test_schematic_parity_and_erc(tiny):

@@ -72,7 +72,7 @@ class SpecctraRouter(Router):
         except subprocess.TimeoutExpired:
             notes.append(f"router timed out after {job.time_budget} s")
         secs = round(time.time() - t0, 1)
-        if not os.path.exists(ses):
+        if not os.path.exists(ses) or not os.path.getsize(ses):
             return RouteResult(job.board, -1, [], {"seconds": secs}, log, ok=False,
                                error=f"{self.name} wrote no session file (see {log})")
         r = k.pcb("specctra", {"mode": "import", "pcb": job.board, "ses": ses, "out": routed},

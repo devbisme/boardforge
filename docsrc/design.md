@@ -660,8 +660,7 @@ What each failure turned out to be:
   3 mm, most are on non-plane rails or 1–2.2 µF.
 
 Also added: `reports/congestion.json` (RUDY demand per 2.5 mm cell, ratsnest crossings) in
-C3, for the compaction loop; `[[placement.region]]` (unanchored ICs packed into a region).
-Regions aren't exercised by the dual-ADC board (every IC is anchored).
+C3, for the compaction loop; `[[placement.region]]` (floorplan regions, below).
 
 **Compaction** (`[placement.compact]`). The board shrinks in uniform steps (default 5 %, down
 to 0.6). Each step reruns C2 and C3 without the pin swap (about 9 s on the dual-ADC board) and
@@ -683,9 +682,35 @@ the ADC's own pin field, and the limit is the anchors running into each other. T
 table (run 2's, for 130 × 90) is the real constraint; regions in place of most anchors would
 let the placer move ICs closer together.
 
-Still to do in step 3: exercising regions on a design without anchors (and a dual-ADC
-floorplan made of regions), calibrating `max_util` against routes that fail, and a decap
-rule for the non-plane rails.
+**Regions** (`[[placement.region]]`). Tested with the dual-ADC board anchored only by its
+four connectors (BNCs, USB-B, GPIO header, each tied to its edge) and one region per sheet
+(rectangles in mm on 130 × 90: AP2112 74,14–92,28; TLV62569 112,50–128,64; front ends
+16,8–46,34 and 16,56–46,82; power 14,36–46,52; ADC 46,32–66,56; FPGA 68,28–100,72;
+SDRAM 102,26–126,54; USB 84,64–108,90).
+- Shelf-packing each region's ICs from its top-left corner, in sheet order, ignored
+  connectivity: 678 ratsnest crossings at full size against 352 for the anchor table, front
+  ends at the top of their regions away from the BNCs, the USB ESD part away from the
+  connector. Compaction stopped at 0.95 (a part no longer fit its region).
+- Now each region IC goes at the centroid of its connections to parts already placed
+  (signal nets only; rails and ground would pull everything to the regulators), clamped into
+  its region, in the best of four rotations, most-connected first. Parts with no region are
+  still shelf-packed. Full size: 356 crossings, 3629 mm ratsnest (anchors: 352).
+
+| Floorplan | Compacted to | Route (Freerouting, then A*) | Track | Vias | Decaps > 3 mm |
+|---|---|---|---|---|---|
+| anchor table (run 16) | 0.9 (USB-B stops 0.85) | 0 unrouted, Freerouting alone | 3958 mm | 595 | 26 |
+| 4 connectors + regions | 0.9 (USB-B stops 0.85) | 0 unrouted (Freerouting 1, A* finished it), 0 DRC errors, gate WARN | 3864 mm | 648 | 25 |
+
+So a floorplan of regions does about as well as run 2's hand-tuned anchor table. The
+regions config isn't kept in the repo: it would share the design's `fpga_pinmap.json`.
+
+Freerouting 2.4.1 reads `gui.enabled` from `~/.config/freerouting/freerouting.json`; with it
+on and a display present, the CLI routed, exited 0 and left an empty session file on the
+dual-ADC board (the tiny board still saved), leaving A* the whole board. boardsmith now
+passes `--gui.enabled=false` and reports an empty session file as a router failure.
+
+Still to do in step 3: calibrating `max_util` against routes that fail, and a decap rule for
+the non-plane rails.
 
 ## 5. Expected gains (estimates, not measurements)
 
@@ -735,7 +760,7 @@ then add the new ones.
    kicad-happy run 2 session scripts. Test it by
    regenerating an existing run's board from its SKiDL file with zero manual steps.
 3. **Placement upgrade:** floorplan + algorithmic placer + compaction (pin swap,
-   escape-aware fanout, decap ordering and compaction done; regions untested; §4.9).
+   escape-aware fanout, decap ordering, compaction and regions done; §4.9).
 4. **Detail stage:** port skidl-skills' agents, wire in kicad-happy's datasheet cache and
    `datasheet_verify`, and add the constraint-driven SPICE gate.
 5. **Explore stage:** calculators, candidate enumeration, Pareto table.
