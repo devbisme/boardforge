@@ -758,7 +758,27 @@ size are over `stretch_mm` (8 mm). On these two floorplans it stops at 0.85, as 
 and anchor checks already did; it is the check that applies to boards with neither. The
 thresholds come from one design and want a second.
 
-Still to do in step 3: a decap rule for the non-plane rails.
+**Decap targets.** The 26 decaps over 3 mm weren't a non-plane-rail problem. C3 aimed most
+of them at the wrong thing: the candidate key tied on every pad of the rail and then sorted
+by ref, so a decap aimed at another capacitor ("C55" < "U11") or at an oscillator, and
+chained away from its IC. Decaps now aim at a supply pin of an IC (5+ pads), preferring the
+same sheet's ICs and then the pin with the fewest decaps so far (so they spread over the
+supply pins, smallest first), and lie radially with the rail pad, not the ground pad, toward
+the pin.
+
+| Board (0.9, routed) | Decaps > 3 mm | Worst | Bulk > 3 mm | Route | Track | Vias |
+|---|---|---|---|---|---|---|
+| anchor table, before (run 16) | 26 | 15.8 mm | 7 | Freerouting alone | 3958 mm | 595 |
+| anchor table, after | 4 | 4.2 mm | 4 | Freerouting alone, 0 DRC errors, gate WARN | 3962 mm | 631 |
+| regions, before | 25 | 9.2 mm | 9 | Freerouting 1, A* | 3864 mm | 648 |
+| regions, after | 4 | 3.7 mm | 4 | Freerouting 1, A*, 0 DRC errors, gate WARN | 3840 mm | 642 |
+
+The remaining four are second caps on a single supply pin (op-amp −3V3A, 1 µF) and two
+100 nF caps at 3.7 mm. Five more decaps sit on the back (36 → 41 parts on
+B.Cu on the anchor table), which probably accounts for the extra vias.
+
+Step 3 is complete; the stretch thresholds and the region/anchor behaviour want a second
+design to confirm them.
 
 ## 5. Expected gains (estimates, not measurements)
 
@@ -808,7 +828,8 @@ then add the new ones.
    kicad-happy run 2 session scripts. Test it by
    regenerating an existing run's board from its SKiDL file with zero manual steps.
 3. **Placement upgrade:** floorplan + algorithmic placer + compaction (pin swap,
-   escape-aware fanout, decap ordering, compaction and regions done; §4.9).
+   escape-aware fanout, decap targets, compaction, regions and the stretch gate
+   done; §4.9).
 4. **Detail stage:** port skidl-skills' agents, wire in kicad-happy's datasheet cache and
    `datasheet_verify`, and add the constraint-driven SPICE gate.
 5. **Explore stage:** calculators, candidate enumeration, Pareto table.

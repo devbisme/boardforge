@@ -99,6 +99,8 @@ def test_board_routed_and_clean(tiny):
     assert res["c4"]["summary"]["unrouted"] == 0
     drc = res["c5"]["summary"]["drc"]
     assert drc["errors"] == 0 and drc["unconnected"] == 0 and drc["parity"] == 0
+    decaps = res["c5"]["summary"]["decaps"]
+    assert decaps["checked"] == 2 and not decaps["far"]  # the LDO's caps, at its pins
     pro = json.load(open(proj.kfile(".kicad_pro")))
     assert "Power" in [c["name"] for c in pro["net_settings"]["classes"]]
 

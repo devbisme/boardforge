@@ -275,7 +275,8 @@ def place(job):
 
     # ---- 3. passives next to the pad they serve
     pad_use = {}
-    stretch = {}  # ref -> (mm moved from its target, mm from its pad to the pad it serves, owner)
+    stretch = {}  # ref -> (mm moved from its target, mm from its pad to the pad it serves,
+    #                       owner.pad)
 
     def is_decap(ref):
         """A capacitor between two rails (not a ferrite or fuse in a rail)."""
@@ -289,6 +290,7 @@ def place(job):
 
     decap_max = job.get("decap_max_mm", 3.0)
     decap_bottom = job.get("decap_bottom", False)
+    decap_dist = job.get("decap_dist", 2.6)  # mm out from the pin (ICs of 5+ pads)
     remaining = sorted((r for r in parts if r not in placed), key=place_key)  # stable: keeps ref order
     for _ in range(6):
         progress = False
@@ -297,10 +299,23 @@ def place(job):
             my_nets = nets_of[ref]
             sheet = fp.GetSheetname()
             cand = []
-            for n in (n for n in my_nets if n not in plane_nets):
-                for r2, pad in owner_pads(n):
-                    same = placed[r2].GetSheetname() == sheet
-                    cand.append(((0 if same else 1, net_size.get(n, 0)), r2, pad))
+            decap = is_decap(ref)
+            if decap:
+                # A decap serves an IC's supply pin: the same sheet's ICs first, then the pin
+                # with the fewest decaps so far, then the biggest IC. (The general key below
+                # ties on every pad of a rail and falls back to ref order, so decaps lined up
+                # on other capacitors, "C55" < "U11", and ended up 4-16 mm from their IC.)
+                for n in (n for n in my_nets if n not in ground):
+                    for r2, pad in owner_pads(n):
+                        if placed[r2].GetPadCount() > 4:
+                            cand.append(((0 if placed[r2].GetSheetname() == sheet else 1,
+                                          pad_use.get((r2, pad.GetNumber()), 0),
+                                          -placed[r2].GetPadCount()), r2, pad))
+            if not cand:
+                for n in (n for n in my_nets if n not in plane_nets):
+                    for r2, pad in owner_pads(n):
+                        same = placed[r2].GetSheetname() == sheet
+                        cand.append(((0 if same else 1, net_size.get(n, 0)), r2, pad))
             if not cand:
                 for n in my_nets:
                     if n in ground:
@@ -319,12 +334,13 @@ def place(job):
             px, py = TOMM(pad.GetPosition().x), TOMM(pad.GetPosition().y)
             dx, dy = px - cx, py - cy
             d = math.hypot(dx, dy) or 1.0
-            decap = is_decap(ref)
             bottom = bool(decap and bottom_owner_rx and re.search(bottom_owner_rx, owner.GetValue()))
             if bottom:
                 dist = -1.8  # under the package, just inside the pin row
             elif owner.GetPadCount() <= 3:
                 dist = 1.5
+            elif decap:
+                dist = decap_dist
             elif owner.GetPadCount() <= 16:
                 dist = 2.6  # small fine-pitch ICs: leave an escape ring
             else:
@@ -336,6 +352,7 @@ def place(job):
                 rot = 0 if abs(dx) > abs(dy) else 90
             # Both pads on pins of the same IC (e.g. a flying cap): lie parallel to those pins,
             # pad order matching, so the two connections don't cross.
+            flying = False
             if fp.GetPadCount() == 2:
                 p1, p2 = list(fp.Pads())
                 o1 = [q for q in owner.Pads() if q.GetNetname() == p1.GetNetname()
@@ -343,6 +360,7 @@ def place(job):
                 o2 = [q for q in owner.Pads() if q.GetNetname() == p2.GetNetname()
                       and p2.GetNetname() not in plane_nets]
                 if o1 and o2:
+                    flying = True
                     ax, ay = TOMM(o1[0].GetPosition().x), TOMM(o1[0].GetPosition().y)
                     bx, by = TOMM(o2[0].GetPosition().x), TOMM(o2[0].GetPosition().y)
                     # pad 1 -> pad 2 runs +x at rot 0; at rot 90 it runs -y (KiCad is CCW)
@@ -354,6 +372,12 @@ def place(job):
                     ux, uy = mx - cx, my - cy
                     du = math.hypot(ux, uy) or 1.0
                     tx, ty = mx + 2.2 * ux / du, my + 2.2 * uy / du
+            if decap and not flying:
+                # radial, with the rail pad (not the ground pad) towards the pin
+                def reach(r_):
+                    put(fp, tx, ty, r_, bottom)
+                    return pad_dist(fp, pad)
+                rot = min((rot, (rot + 180) % 360), key=reach)
             ok = try_place(fp, tx, ty, rot, bottom=bottom)
             if ok:
                 q = fp.GetPosition()
@@ -364,7 +388,7 @@ def place(job):
                 if closer_on_bottom(fp, pad, owner):
                     moved = 0.0  # under the pin row, where it was meant to go
             if ok:
-                stretch[ref] = (round(moved, 2), round(pad_dist(fp, pad), 2), r2)
+                stretch[ref] = (round(moved, 2), round(pad_dist(fp, pad), 2), f"{r2}.{pad.GetNumber()}")
                 placed[ref] = fp
                 remaining.remove(ref)
                 progress = True
@@ -388,6 +412,7 @@ def place(job):
             "anchor_overlaps": anchor_overlaps,
             "leftovers": sum(1 for w in warnings if "placed with no anchor or partner" in w),
             "stretch": _stretch(stretch, job.get("stretch_mm", 8.0)),
+            "stretch_parts": stretch,  # ref -> [moved, reach, owner.pad] (work/ result only)
             "warnings": warnings, "ok": not failed}
 
 
