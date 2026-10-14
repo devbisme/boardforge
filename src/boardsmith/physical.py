@@ -293,6 +293,7 @@ class Pipeline:
                "plane_nets": list(self.plane_nets(warnings).values()), "rails": rails,
                "ground_nets": ground, "bottom_decap_owners": pl["bottom_decap_owners"],
                "decap_bottom": pl["decap_bottom"], "decap_max_mm": self.cfg["checks"]["decap_max_mm"],
+               "stretch_mm": pl["compact"]["stretch_mm"],
                "keepout": self.cfg["rules"]["edge_clearance"] + 0.2}
         r = self.k.pcb("place", job, self.p.work)
         if "placed" not in r:
@@ -301,7 +302,7 @@ class Pipeline:
         routers.copy_board(self.p.kfile(".kicad_pcb"), self.placed_board)
         warnings += r.get("warnings", [])
         summary = {k: r.get(k) for k in ("anchored", "placed", "bottom_side", "unplaced",
-                                         "anchor_overlaps", "leftovers")}
+                                         "anchor_overlaps", "leftovers", "stretch")}
         if pl["pin_swap"] and not trial:
             summary["pins_swapped"], summary["pinmap_changed"] = self.pin_swap(warnings)
         summary["congestion"] = self.congestion(self.placed_board, warnings)
@@ -333,6 +334,12 @@ class Pipeline:
             return f"overlaps {summary['overlaps']}"
         if any("doesn't fit its region" in w for w in warnings):
             return "a part doesn't fit its region"
+        # Shrinking pushes passives off their pins before any routing channel fills: the
+        # count pushed far, over the full-size count, tracked the dual-ADC routing failures.
+        far = (summary.get("stretch") or {}).get("far", 0)
+        far0 = ((base or {}).get("stretch") or {}).get("far", 0)
+        if base is not None and far - far0 > cc["max_stretched"]:
+            return f"{far} passives over {cc['stretch_mm']} mm from their spot ({far0} at full size)"
         if c is None:
             return "no congestion estimate"
         if c["over_limit"] > cc["max_over"]:

@@ -17,7 +17,8 @@ they scale, except an anchor's offset from the edges it names),
 anchors [{ref|value, sheet, at, rot, side, edge (left|right|top|bottom or a list)}],
 regions [{sheet, value, rect (mm from the top-left corner) | area (fractions of the board)}],
 ic_gap (mm between shelf-packed parts), plane_nets, rails, ground_nets,
-bottom_decap_owners (regex), decap_bottom (bool), decap_max_mm, keepout (mm around the edge).
+bottom_decap_owners (regex), decap_bottom (bool), decap_max_mm, keepout (mm around the edge),
+stretch_mm (passives moved further than this from their target count as ``stretch.far``).
 """
 
 import math
@@ -274,6 +275,7 @@ def place(job):
 
     # ---- 3. passives next to the pad they serve
     pad_use = {}
+    stretch = {}  # ref -> (mm moved from its target, mm from its pad to the pad it serves, owner)
 
     def is_decap(ref):
         """A capacitor between two rails (not a ferrite or fuse in a rail)."""
@@ -353,11 +355,16 @@ def place(job):
                     du = math.hypot(ux, uy) or 1.0
                     tx, ty = mx + 2.2 * ux / du, my + 2.2 * uy / du
             ok = try_place(fp, tx, ty, rot, bottom=bottom)
+            if ok:
+                q = fp.GetPosition()
+                moved = math.hypot(TOMM(q.x) - tx, TOMM(q.y) - ty)
             # Only plane decaps: their vias come from the fanout; a decap on another rail
             # would need a routed via next to a crowded pin row.
             if ok and decap and decap_bottom and not bottom and set(my_nets) <= plane_nets | ground:
-                ok = closer_on_bottom(fp, pad, owner) or ok
+                if closer_on_bottom(fp, pad, owner):
+                    moved = 0.0  # under the pin row, where it was meant to go
             if ok:
+                stretch[ref] = (round(moved, 2), round(pad_dist(fp, pad), 2), r2)
                 placed[ref] = fp
                 remaining.remove(ref)
                 progress = True
@@ -380,7 +387,25 @@ def place(job):
             "placed": len(parts) - len(failed), "bottom_side": bottom, "unplaced": failed,
             "anchor_overlaps": anchor_overlaps,
             "leftovers": sum(1 for w in warnings if "placed with no anchor or partner" in w),
+            "stretch": _stretch(stretch, job.get("stretch_mm", 8.0)),
             "warnings": warnings, "ok": not failed}
+
+
+def _stretch(st, far_mm):
+    """How far passives ended up from where they were meant to go: shrinking a board pushes
+    them off their pins before any routing channel fills (§4.9)."""
+    if not st:
+        return {"n": 0, "far": 0}
+    mv = sorted(v[0] for v in st.values())
+    rc = sorted(v[1] for v in st.values())
+    worst = sorted(st.items(), key=lambda kv: -kv[1][0])[:8]
+    return {"n": len(st), "far": sum(1 for m in mv if m > far_mm),
+            "moved_max": mv[-1], "moved_p90": mv[int(0.9 * (len(mv) - 1))],
+            "moved_mean": round(sum(mv) / len(mv), 2),
+            "moved_over": {str(t): sum(1 for m in mv if m > t) for t in (1, 2, 3, 5, 8)},
+            "reach_max": rc[-1], "reach_p90": rc[int(0.9 * (len(rc) - 1))],
+            "reach_over": {str(t): sum(1 for r in rc if r > t) for t in (3, 5, 8, 12)},
+            "worst": [[r, m, d, o] for r, (m, d, o) in worst]}
 
 
 if __name__ == "__main__":

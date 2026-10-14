@@ -734,8 +734,29 @@ to its edge) placed and routed at forced scales, Freerouting alone, no compactio
 
 So `max_util` stays at 1.0 as a backstop for boards whose channels really are full (none
 yet), and `reports/congestion.json` gains a histogram (cells over 0.3 … 0.9) for later
-designs. A better predictor of these failures is how far C3 had to move passives from their
-targets; that, not RUDY, is the next calibration candidate.
+designs.
+
+**Passive stretch.** C3 now records, per passive, how far it ended up from the spot it was
+aimed at (next to the pad it serves) and how far its pad is from that pad; the C3 summary
+has `stretch` (count over `stretch_mm`, maxima, p90, the worst eight). Placement-only trials
+of both floorplans, passives moved more than 8 mm (routing results from the table above):
+
+| Scale | Regions: far | Unrouted | Anchor table: far | Unrouted |
+|---|---|---|---|---|
+| 1.0 | 1 | | 0 | |
+| 0.95 | 0 | | 0 | |
+| 0.9 | 0 | 1 | 4 | 0 |
+| 0.85 | 8 | 1 | 7 | |
+| 0.8 | 14 | 4 | 12 | |
+| 0.75 | 21 | 5 | | |
+| 0.7 | 37 | 11 | | |
+
+Unlike RUDY it rises steadily with the failures, and the worst parts are the ones that
+failed to route (C10 the charge-pump cap, F1 the USB fuse, the FT2232H crystal parts).
+Compaction now rejects a size where more than `max_stretched` (5) more passives than at full
+size are over `stretch_mm` (8 mm). On these two floorplans it stops at 0.85, as the region
+and anchor checks already did; it is the check that applies to boards with neither. The
+thresholds come from one design and want a second.
 
 Still to do in step 3: a decap rule for the non-plane rails.
 

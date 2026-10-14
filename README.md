@@ -74,6 +74,8 @@ edge = "left"                  # optional: keep the offset from this edge when c
 [placement.compact]            # shrink the board while everything still fits, then
 enabled = true                 # confirm by routing (stepping back up if it fails)
 min_scale = 0.6
+max_stretched = 5              # stop when 5 more passives than at full size end up
+stretch_mm = 8.0               # over 8 mm from their spot (C3 summary: stretch)
 
 [[placement.region]]           # floorplan: unanchored ICs of a sheet go in this area, near
 sheet = "front_end"            # the parts they connect to; regex on sheet (and/or value);

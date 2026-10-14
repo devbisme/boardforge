@@ -406,3 +406,21 @@ def test_compaction_steps_back_up_when_routing_fails(tmp_path, monkeypatch):
     c4 = [c for c in calls if c[0] == "c4"]
     assert c4 == [("c4", 0.8), ("c4", 0.85), ("c4", 0.9)]  # stepped back up until it routed
     assert out[-1]["stage"] == "c6" and pipe.scale == 0.9
+
+
+def test_compaction_stops_when_passives_are_pushed_away(tmp_path):
+    from boardsmith.physical import Pipeline
+
+    (tmp_path / "d.py").write_text("")
+    (tmp_path / "boardsmith.toml").write_text('[design]\nfile = "d.py"\n')
+    proj = config.Project.load(str(tmp_path))
+    pipe = Pipeline.__new__(Pipeline)
+    pipe.cfg = proj.cfg
+    cong = {"over_limit": 0}
+    base = {"stretch": {"far": 2}, "congestion": cong}
+
+    def trial(far):
+        return pipe.placement_fits({"stretch": {"far": far}, "congestion": cong}, [], base)
+
+    assert trial(7) is None  # 5 more than at full size: still fits (default max_stretched)
+    assert "passives over 8.0 mm" in trial(8)
