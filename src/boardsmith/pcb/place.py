@@ -10,7 +10,9 @@
    ``decap_max_mm`` of its pin on the front goes on B.Cu if that is closer.
 4. Leftovers spiral out from the board centre.
 
-Job: pcb, anchors [{ref|value, sheet, at, rot, side}],
+Job: pcb, design_size ([w, h] the anchor and region positions are for; on a smaller board
+they scale, except an anchor's offset from the edges it names),
+anchors [{ref|value, sheet, at, rot, side, edge (left|right|top|bottom or a list)}],
 regions [{sheet, value, rect (mm from the top-left corner) | area (fractions of the board)}],
 ic_gap (mm between shelf-packed parts), plane_nets, rails, ground_nets,
 bottom_decap_owners (regex), decap_bottom (bool), decap_max_mm, keepout (mm around the edge).
@@ -74,7 +76,14 @@ def place(job):
         occupied["B" if bottom else "F"].append(rect)
         occupied["F" if bottom else "B"].extend(pin_rects(fp))
 
-    def try_place(fp, tx, ty, rot, max_r=25.0, step=0.25, bottom=False, box=None):
+    def unclaim(fp, bottom):
+        """Undo the last claim(fp, ...)."""
+        occupied["B" if bottom else "F"].pop()
+        for _ in pin_rects(fp):
+            occupied["F" if bottom else "B"].pop()
+
+    def try_place(fp, tx, ty, rot, max_r=25.0, step=0.25, bottom=False, box=None, edge_ok=True,
+                  margin=0.25):
         occ = occupied["B" if bottom else "F"]
         put(fp, tx, ty, rot, bottom)
         r = 0.0
@@ -84,15 +93,29 @@ def place(job):
                 a = 2 * math.pi * k / n
                 x, y = tx + r * math.cos(a), ty + r * math.sin(a)
                 fp.SetPosition(pt(x, y))
-                b = courtyard_rect(fp, 0.25)
-                if inside(b) and (box is None or inside_box(b, box)) \
+                b = courtyard_rect(fp, margin)
+                if (inside(b) or not edge_ok) and (box is None or inside_box(b, box)) \
                         and not any(overlap(b, o) for o in occ):
                     claim(fp, b, bottom)
                     return True
             r += step
         return False
 
+    # Positions in the config are for a board of ``design_size``; on a smaller (compacted)
+    # board they scale with it, except offsets from the edges an anchor is tied to.
+    dw, dh = job.get("design_size") or (ex1 - ex0, ey1 - ey0)
+    sx, sy = (ex1 - ex0) / dw, (ey1 - ey0) / dh
+
+    def anchor_xy(a):
+        x, y = a["at"]
+        edges = a.get("edge", [])
+        edges = [edges] if isinstance(edges, str) else edges
+        x = ex0 + x if "left" in edges else ex1 - (dw - x) if "right" in edges else ex0 + x * sx
+        y = ey0 + y if "top" in edges else ey1 - (dh - y) if "bottom" in edges else ey0 + y * sy
+        return x, y
+
     # ---- 1. anchors
+    anchor_overlaps = []
     for a in job.get("anchors", []):
         if a.get("ref"):
             hits = [a["ref"]] if a["ref"] in parts else []
@@ -105,9 +128,28 @@ def place(job):
             continue
         fp = parts[hits[0]]
         bottom = a.get("side", "F") == "B"
-        put(fp, ex0 + a["at"][0], ey0 + a["at"][1], a.get("rot", 0), bottom)
+        x, y = anchor_xy(a)
+        # An anchor that lands on an earlier one (on a compacted board) moves to the nearest
+        # free spot, up to anchor_slack mm.
+        # (Edge connectors hang over the board edge on purpose: only other parts count.)
+        ok = try_place(fp, x, y, a.get("rot", 0), max_r=job.get("anchor_slack", 3.0), bottom=bottom,
+                       edge_ok=False, margin=0.0)
+        dx, dy = (TOMM(fp.GetPosition().x) - x, TOMM(fp.GetPosition().y) - y) if ok else (0, 0)
+        edges = a.get("edge", [])
+        edges = [edges] if isinstance(edges, str) else edges
+        if ok and ((abs(dx) > 0.01 and {"left", "right"} & set(edges))
+                   or (abs(dy) > 0.01 and {"top", "bottom"} & set(edges))):
+            unclaim(fp, bottom)  # moved off its edge: not allowed
+            ok = False
+        if not ok:
+            put(fp, x, y, a.get("rot", 0), bottom)
+            claim(fp, courtyard_rect(fp, 0.25), bottom)
+            anchor_overlaps.append(hits[0])
+            warnings.append(f"anchor {hits[0]} ({fp.GetValue()}) overlaps another part")
+        elif math.hypot(dx, dy) > 0.01:
+            warnings.append(f"anchor {hits[0]} ({fp.GetValue()}) moved {math.hypot(dx, dy):.1f} mm "
+                            f"to clear another part")
         placed[hits[0]] = fp
-        claim(fp, courtyard_rect(fp, 0.25), bottom)
 
     # ---- 2. unanchored multi-pin parts: shelf-pack in sheet order, inside their region
     def region_of(fp):
@@ -116,7 +158,7 @@ def place(job):
                     and re.search(g.get("value", ""), fp.GetValue())):
                 if "rect" in g:
                     x0, y0, x1, y1 = g["rect"]
-                    return ex0 + x0, ey0 + y0, ex0 + x1, ey0 + y1
+                    return ex0 + x0 * sx, ey0 + y0 * sy, ex0 + x1 * sx, ey0 + y1 * sy
                 fx0, fy0, fx1, fy1 = g["area"]
                 w, h = ex1 - ex0, ey1 - ey0
                 return ex0 + fx0 * w, ey0 + fy0 * h, ex0 + fx1 * w, ey0 + fy1 * h
@@ -288,6 +330,8 @@ def place(job):
     bottom = sum(1 for fp in parts.values() if fp.IsFlipped())
     return {"anchored": len(job.get("anchors", [])) - sum(w.startswith("anchor") for w in warnings),
             "placed": len(parts) - len(failed), "bottom_side": bottom, "unplaced": failed,
+            "anchor_overlaps": anchor_overlaps,
+            "leftovers": sum(1 for w in warnings if "placed with no anchor or partner" in w),
             "warnings": warnings, "ok": not failed}
 
 

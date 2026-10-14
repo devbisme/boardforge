@@ -6,9 +6,9 @@ cell's demand divided by its capacity (cell area times the signal layers) is its
 utilisation; plane nets are left out (they connect by vias). Pads block part of the outer
 layers, so their copper is added to the demand of the cells they sit in.
 
-Job: pcb, plane_nets, pitch (track + clearance, mm), signal_layers, cell (mm).
-Result: max, p95 and mean utilisation, cells over 1.0, the hottest cells, ratsnest
-crossings and length.
+Job: pcb, plane_nets, pitch (track + clearance, mm), signal_layers, cell (mm), limit.
+Result: max, p95 and mean utilisation, cells over 1.0 and over ``limit``, the hottest cells,
+ratsnest crossings and length.
 """
 
 import math
@@ -107,6 +107,7 @@ def congestion(job):
            for u, j, i in util[::-1][:8]]
     return {"cell_mm": g, "max": round(vals[-1], 2), "p95": round(vals[int(0.95 * (len(vals) - 1))], 2),
             "mean": round(sum(vals) / len(vals), 3), "over_1": sum(1 for u in vals if u > 1.0),
+            "over_limit": sum(1 for u in vals if u > job.get("limit", 1.0)),
             "hot": hot, "crossings": _crossings(segs), "ratsnest_mm": round(length)}
 
 

@@ -66,6 +66,9 @@ class Pipeline:
         self.state = State(proj.state_file)
         self.fab = fabs.get(self.cfg["fab"]["name"], self.cfg["fab"].get("tier"))
         self.log = os.path.join(proj.reports, "kicad-cli.log")
+        # Compaction (§4.9): the board is base_size * scale; 1.0 = the configured/estimated size.
+        self.scale = 1.0
+        self.base_size = None
 
     # ------------------------------------------------------------------ helpers
     # Each board stage starts from the previous stage's snapshot, so any stage can be rerun.
@@ -250,7 +253,8 @@ class Pipeline:
         if mh.get("net"):
             mh["net"] = self.knet(mh["net"], nm, warnings)
         job = {"netlist": self.p.kfile(".net"), "pcb": self.p.kfile(".kicad_pcb"),
-               "fp_paths": self.fp_paths(), "size": size or b["size"], "fill": fill or b["fill"],
+               "fp_paths": self.fp_paths(), "size": size or self.scaled_size() or b["size"],
+               "fill": fill or b["fill"],
                "origin": b["origin"], "layers": b["layers"], "thickness": b["thickness"],
                "planes": self.plane_nets(warnings), "rules": rules, "mounting_holes": mh,
                "title": self.cfg["design"]["title"] or self.p.name, "revision": b["revision"],
@@ -262,12 +266,21 @@ class Pipeline:
         routers.copy_board(self.p.kfile(".kicad_pcb"), self.built_board)
         warnings += r.get("warnings", [])
         summary = {k: r[k] for k in ("footprints", "nets", "size", "size_estimated")}
+        if self.scale != 1.0:
+            summary["scale"] = self.scale  # of an estimated size too, so it stays "estimated"
+            summary["size_estimated"] = not b["size"]
         summary.update(layers=b["layers"], fab=f"{self.fab.name}/{self.fab.tier_name}",
                        min_track=rules["min_track"], min_clearance=rules["min_clearance"])
         return ("warn" if warnings else "done"), summary, warnings
 
     # ------------------------------------------------------------------ C3
-    def c3(self):
+    def scaled_size(self):
+        if self.scale == 1.0 or not self.base_size:
+            return None
+        return [round(v * self.scale, 2) for v in self.base_size]
+
+    def c3(self, trial=False):
+        """Placement. ``trial`` (compaction search): no pin swap."""
         warnings = []
         pl = self.cfg["placement"]
         rails, ground = self.rails()
@@ -275,6 +288,7 @@ class Pipeline:
             raise StageError("no board: run C2 first")
         routers.copy_board(self.built_board, self.p.kfile(".kicad_pcb"))
         job = {"pcb": self.p.kfile(".kicad_pcb"), "anchors": pl["anchor"], "regions": pl["region"],
+               "design_size": self.cfg["board"]["size"] or self.base_size,
                "ic_gap": pl["ic_gap"],
                "plane_nets": list(self.plane_nets(warnings).values()), "rails": rails,
                "ground_nets": ground, "bottom_decap_owners": pl["bottom_decap_owners"],
@@ -286,8 +300,9 @@ class Pipeline:
         self.write_pro()
         routers.copy_board(self.p.kfile(".kicad_pcb"), self.placed_board)
         warnings += r.get("warnings", [])
-        summary = {k: r.get(k) for k in ("anchored", "placed", "bottom_side", "unplaced")}
-        if pl["pin_swap"]:
+        summary = {k: r.get(k) for k in ("anchored", "placed", "bottom_side", "unplaced",
+                                         "anchor_overlaps", "leftovers")}
+        if pl["pin_swap"] and not trial:
             summary["pins_swapped"], summary["pinmap_changed"] = self.pin_swap(warnings)
         summary["congestion"] = self.congestion(self.placed_board, warnings)
         # Overlaps the router can't fix: pads of different nets touching (e.g. a part on the
@@ -302,6 +317,61 @@ class Pipeline:
             return "warn", summary, warnings + [f"{len(r['unplaced'])} parts could not be placed"]
         return ("warn" if warnings else "done"), summary, warnings
 
+    def placement_fits(self, summary, warnings, base=None):
+        """Why a (trial) placement can't be used, or None if it can. ``base``: the full-size
+        trial's summary; a smaller board may not leave more parts without a partner."""
+        cc = self.cfg["placement"]["compact"]
+        c = summary.get("congestion")
+        if summary.get("unplaced"):
+            return f"{len(summary['unplaced'])} parts unplaced"
+        if base is not None and len(summary.get("anchor_overlaps") or []) > \
+                len(base.get("anchor_overlaps") or []):
+            return f"anchors overlap: {summary['anchor_overlaps']}"
+        if base is not None and summary.get("leftovers", 0) > base.get("leftovers", 0):
+            return f"{summary['leftovers']} parts placed away from their partners"
+        if summary.get("overlaps"):
+            return f"overlaps {summary['overlaps']}"
+        if any("doesn't fit its region" in w for w in warnings):
+            return "a part doesn't fit its region"
+        if c is None:
+            return "no congestion estimate"
+        if c["over_limit"] > cc["max_over"]:
+            return f"{c['over_limit']} cells over {cc['max_util']}x (max {c['max']}x)"
+        return None
+
+    def compact(self):
+        """Compaction search: shrink until a placement doesn't fit. Leaves self.scale at the
+        smallest scale that fitted and returns the trials (also in reports/compaction.json)."""
+        cc = self.cfg["placement"]["compact"]
+        if not self.base_size:  # C2's last size, undoing an earlier run's compaction
+            c2 = self.state.stage("c2")["summary"]
+            self.base_size = [round(v / c2.get("scale", 1.0), 2) for v in c2["size"]]
+        trials, best, s, base = [], 1.0, 1.0 + cc["step"], None
+        while round(s - cc["step"], 3) >= cc["min_scale"] - 1e-9:
+            s = round(s - cc["step"], 3)  # 1.0 first: the baseline
+            self.scale = s
+            t0 = time.time()
+            try:
+                self.c2()
+                _, summary, warnings = self.c3(trial=True)
+                why = self.placement_fits(summary, warnings, base)
+                if base is None:
+                    base = summary
+                    if why:
+                        why = f"full size: {why}"
+            except StageError as e:
+                summary, why = {}, f"error: {e}"
+            trials.append({"scale": s, "size": self.scaled_size(), "fits": why is None,
+                           "why": why, "congestion": summary.get("congestion"),
+                           "seconds": round(time.time() - t0, 1)})
+            if why:
+                break
+            best = s
+        self.scale = best
+        with open(os.path.join(self.p.reports, "compaction.json"), "w") as f:
+            json.dump({"base_size": self.base_size, "chosen": best, "trials": trials}, f, indent=1)
+        return trials
+
     def congestion(self, board, warnings):
         """Routability estimate of a placed board (pcb/congestion.py); the full result goes
         to reports/congestion.json."""
@@ -309,7 +379,8 @@ class Pipeline:
         planes = self.plane_nets(warnings)
         job = {"pcb": board, "plane_nets": sorted(set(planes.values())),
                "pitch": rules["track_width"] + rules["clearance"],
-               "signal_layers": max(1, b["layers"] - len(planes)), "cell": 2.5}
+               "signal_layers": max(1, b["layers"] - len(planes)), "cell": 2.5,
+               "limit": self.cfg["placement"]["compact"]["max_util"]}
         r = self.k.pcb("congestion", job, self.p.work)
         if not r.get("ok"):
             warnings.append(f"congestion estimate: {r.get('error')}")
@@ -319,7 +390,7 @@ class Pipeline:
         if r["over_1"]:
             warnings.append(f"{r['over_1']} placement cells need more routing than they have "
                             f"(max {r['max']}x); see reports/congestion.json")
-        return {k: r[k] for k in ("max", "p95", "over_1", "crossings", "ratsnest_mm")}
+        return {k: r[k] for k in ("max", "p95", "over_1", "over_limit", "crossings", "ratsnest_mm")}
 
     def pin_swap(self, warnings):
         """Recompute each [[placement.pin_swap]] map from the placed board and write the ones
@@ -610,27 +681,65 @@ class Pipeline:
         out = []
         fns = {"c1": self.c1, "c2": self.c2, "c3": self.c3, "c4": self.c4, "c5": self.c5, "c6": self.c6}
         retries = self.cfg["routing"].get("grow_retries", 1) if retries is None else retries
+        cc = self.cfg["placement"]["compact"]
+        compacting = False  # decided at C3, once C2 has a size
+        route_retries = cc["route_retries"]
         fill = self.cfg["board"]["fill"]
+
+        def place():
+            """C2 at the current scale, then C3 (with the pin-map rebuild)."""
+            for s in ("c2", "c3"):
+                out.append(self.run_stage(s, fns[s]))
+                if out[-1]["status"] == "failed":
+                    return out[-1]
+            return after_c3(out[-1])
+
+        def after_c3(res):
+            if not res["summary"].get("pinmap_changed"):
+                return res
+            # The design reads the new pin map: rebuild it once. Placement doesn't depend on
+            # the map, so a second change means the swap doesn't converge.
+            for s in ("c1", "c2", "c3"):
+                res = self.run_stage(s, fns[s])
+                out.append(res)
+                if res["status"] == "failed":
+                    return res
+            if res["summary"].get("pinmap_changed"):
+                res["warnings"].append("pin map changed again after the rebuild")
+                self.state.record("c3", "warn", res["summary"], res["warnings"], res["seconds"])
+            return res
+
         for sid in stages:
-            res = self.run_stage(sid, fns[sid])
-            out.append(res)
-            if sid == "c3" and res["summary"].get("pinmap_changed"):
-                # The design reads the new pin map: rebuild it once. Placement anchors don't
-                # depend on the map, so a second change means the swap doesn't converge.
-                for s in ("c1", "c2", "c3"):
-                    res = self.run_stage(s, fns[s])
+            if sid == "c3":
+                compacting = bool(cc["enabled"] and self.state.stage("c2").get("summary"))
+            if sid == "c3" and compacting:
+                trials = self.compact()
+                res = place()
+                res["summary"]["compaction"] = {"scale": self.scale, "size": self.scaled_size(),
+                                                "trials": len(trials)}
+                self.state.record("c3", res["status"], res["summary"], res["warnings"], res["seconds"])
+            else:
+                res = self.run_stage(sid, fns[sid])
+                out.append(res)
+                if sid == "c3":
+                    res = after_c3(res)
+            # Routing confirms the compaction: step back up while connections are left.
+            while (sid == "c4" and compacting and res["summary"].get("unrouted")
+                   and self.scale < 1.0 and route_retries > 0):
+                route_retries -= 1
+                self.scale = min(1.0, round(self.scale + cc["step"], 3))
+                res = place()
+                if res["status"] != "failed":
+                    res = self.run_stage("c4", self.c4)
                     out.append(res)
-                    if res["status"] == "failed":
-                        return out
-                if res["summary"].get("pinmap_changed"):
-                    res["warnings"].append("pin map changed again after the rebuild")
-                    self.state.record("c3", "warn", res["summary"], res["warnings"], res["seconds"])
-            while (sid == "c4" and res["summary"].get("unrouted") and retries > 0 and "c2" in stages
+            while (sid == "c4" and not compacting and res["summary"].get("unrouted") and retries > 0
+                   and "c2" in stages
                    and self.state.stage("c2").get("summary", {}).get("size_estimated")):
                 retries -= 1
                 fill *= 0.85
                 out.append(self.run_stage("c2", lambda: self.c2(fill=fill)))
                 out.append(self.run_stage("c3", self.c3))
+                res = after_c3(out[-1])
                 res = self.run_stage("c4", self.c4)
                 out.append(res)
             if res["status"] == "failed":

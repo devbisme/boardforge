@@ -64,6 +64,12 @@ DEFAULTS = {
         # into the first region that matches; their passives follow them.
         "region": [],
         "ic_gap": 6.0,  # mm between packed ICs
+        # Compaction: shrink the board (and the anchor/region positions with it) in steps of
+        # ``step`` down to ``min_scale`` while every part fits, nothing overlaps and at most
+        # ``max_over`` congestion cells exceed ``max_util``; then route, and step back up
+        # (at most ``route_retries`` times) if routing leaves connections.
+        "compact": {"enabled": False, "step": 0.05, "min_scale": 0.6, "max_util": 1.0,
+                    "max_over": 0, "route_retries": 2},
         "bottom_decap_owners": "",  # regex on owner value: their decaps go on B.Cu
         # Other decaps that can't get within checks.decap_max_mm on the front may go on B.Cu
         # (off by default: parts on both sides cost more to assemble).

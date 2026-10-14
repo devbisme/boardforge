@@ -368,3 +368,41 @@ def test_pin_swap_far_row_of_a_tsop_faces_away(monkeypatch):
     assert not ps._faces_away((25, -10), tsop, fpga)  # near row, even at its end
     assert ps._faces_away((35, -10), tsop, fpga)  # far row, at its end
     assert ps._faces_away((35, 0), tsop, fpga)
+
+
+def test_compaction_steps_back_up_when_routing_fails(tmp_path, monkeypatch):
+    from boardsmith.physical import Pipeline
+
+    (tmp_path / "d.py").write_text("")
+    (tmp_path / "boardsmith.toml").write_text(
+        '[design]\nfile = "d.py"\n[placement.compact]\nenabled = true\nroute_retries = 3\n')
+    proj = config.Project.load(str(tmp_path))
+    pipe = Pipeline.__new__(Pipeline)
+    pipe.p, pipe.cfg = proj, proj.cfg
+    pipe.state = State(proj.state_file)
+    pipe.scale, pipe.base_size = 1.0, None
+    calls = []
+
+    def stage(sid, summary=None):
+        def fn():
+            calls.append((sid, pipe.scale))
+            s = dict(summary or {})
+            if sid == "c2":
+                s["size"] = [100, 80]
+            if sid == "c4":  # routes only at 0.9 or larger
+                s["unrouted"] = 0 if pipe.scale >= 0.9 - 1e-9 else 2
+            return "done", s, []
+        return fn
+
+    for sid in ("c1", "c2", "c3", "c4", "c5", "c6"):
+        monkeypatch.setattr(pipe, sid, stage(sid))
+
+    def compact():
+        pipe.scale = 0.8
+        return [{}]
+
+    monkeypatch.setattr(pipe, "compact", compact)
+    out = pipe._run(["c1", "c2", "c3", "c4", "c5", "c6"], None)
+    c4 = [c for c in calls if c[0] == "c4"]
+    assert c4 == [("c4", 0.8), ("c4", 0.85), ("c4", 0.9)]  # stepped back up until it routed
+    assert out[-1]["stage"] == "c6" and pipe.scale == 0.9

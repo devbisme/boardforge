@@ -61,6 +61,18 @@ def test_placement_reports_congestion(tiny):
     assert os.path.exists(os.path.join(proj.out, "reports", "congestion.json"))
 
 
+def test_compaction_shrinks_and_routes(tiny):
+    proj, res = tiny
+    comp = res["c3"]["summary"]["compaction"]
+    with open(os.path.join(proj.out, "reports", "compaction.json")) as f:
+        rep = json.load(f)
+    assert rep["trials"][0]["scale"] == 1.0 and rep["trials"][0]["fits"]
+    assert comp["scale"] == rep["chosen"] <= 1.0
+    if comp["scale"] < 1.0:
+        assert res["c2"]["summary"]["size"] == comp["size"]
+    assert res["c4"]["summary"]["unrouted"] == 0  # confirmed by routing (or stepped back up)
+
+
 def test_schematic_parity_and_erc(tiny):
     _, res = tiny
     s = res["c1"]["summary"]

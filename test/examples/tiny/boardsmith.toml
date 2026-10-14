@@ -10,7 +10,7 @@ renders = false
 
 [board]
 layers = 2
-fill = 0.2
+fill = 0.12  # loose on purpose: compaction shrinks it
 pours = ["GND"]
 mounting_holes = { footprint = "" }
 
@@ -25,3 +25,7 @@ chain = ["freerouting", "astar"]
 
 [routing.freerouting]
 max_passes = 10
+
+[placement.compact]
+enabled = true
+min_scale = 0.7

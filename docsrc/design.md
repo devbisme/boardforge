@@ -663,9 +663,29 @@ Also added: `reports/congestion.json` (RUDY demand per 2.5 mm cell, ratsnest cro
 C3, for the compaction loop; `[[placement.region]]` (unanchored ICs packed into a region).
 Regions aren't exercised by the dual-ADC board (every IC is anchored).
 
-Still to do in step 3: compaction (shrink and re-place, scored by the congestion estimate,
-confirmed by a route); exercising regions on a design without anchors; a decap rule for the
-non-plane rails.
+**Compaction** (`[placement.compact]`). The board shrinks in uniform steps (default 5 %, down
+to 0.6). Each step reruns C2 and C3 without the pin swap (about 9 s on the dual-ADC board) and
+passes if every part is placed, the placed-board DRC finds no overlaps, no anchor overlaps
+or leaves more parts away from their partners than at full size, and at most `max_over`
+congestion cells exceed `max_util`. The smallest passing size is placed for real (pin swap
+included) and routed; if routing leaves connections, the scale steps back up and C2–C4 run
+again (`route_retries`). Anchor positions and region rectangles scale with the board; an
+anchor with `edge` keeps its offset from that edge (connectors), and may slide only along it
+when it has to clear another part.
+
+| Board | Trials | Chosen | Stopped by | Route |
+|---|---|---|---|---|
+| dual-ADC, 130 × 90 | 1.0, 0.95, 0.9, 0.85 | 0.9: 117 × 81 (−19 % area) | 0.85: USB-B would leave its edge | run 16: Freerouting alone, 0 unrouted, 0 DRC errors, gate WARN; track 3958 mm (−10 %), 595 vias (−16 %) |
+| tiny (estimated 29 × 22 at fill 0.12) | 1.0 … 0.75 | 0.8: 23.2 × 17.6 | 0.75: a part unplaced | complete |
+
+On the dual-ADC board the congestion estimate stays at 0.9–0.95 for every size: its peak is
+the ADC's own pin field, and the limit is the anchors running into each other. The anchor
+table (run 2's, for 130 × 90) is the real constraint; regions in place of most anchors would
+let the placer move ICs closer together.
+
+Still to do in step 3: exercising regions on a design without anchors (and a dual-ADC
+floorplan made of regions), calibrating `max_util` against routes that fail, and a decap
+rule for the non-plane rails.
 
 ## 5. Expected gains (estimates, not measurements)
 
@@ -714,7 +734,8 @@ then add the new ones.
    §4.8): harden the
    kicad-happy run 2 session scripts. Test it by
    regenerating an existing run's board from its SKiDL file with zero manual steps.
-3. **Placement upgrade:** floorplan + algorithmic placer + compaction (in progress; §4.9).
+3. **Placement upgrade:** floorplan + algorithmic placer + compaction (pin swap,
+   escape-aware fanout, decap ordering and compaction done; regions untested; §4.9).
 4. **Detail stage:** port skidl-skills' agents, wire in kicad-happy's datasheet cache and
    `datasheet_verify`, and add the constraint-driven SPICE gate.
 5. **Explore stage:** calculators, candidate enumeration, Pareto table.

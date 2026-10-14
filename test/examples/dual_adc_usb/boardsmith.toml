@@ -24,7 +24,11 @@ via_drill = 0.2
 bottom_decap_owners = "^(ICE40|IS42S16400|FT2232HL)"
 decap_bottom = true
 
-# Positions are mm from the board's top-left corner. value/sheet are regexes.
+# Compaction (step 3): anchors with an edge keep their offset from it, the others scale.
+[placement.compact]
+enabled = true
+
+# Positions are mm from the top-left corner of the 130 x 90 board. value/sheet are regexes.
 # FPGA I/O banks: C3 reorders the signals on these pins to match the placement and writes
 # fpga_pinmap.json, which dual_adc_usb.py reads. Clock and config pins are fixed (not listed).
 [[placement.pin_swap]]
@@ -44,10 +48,12 @@ partner = "^FT2232HL"
 
 [[placement.anchor]]  # BNC: body front face 12.7 mm from pad 1 -> flush with the left edge
 value = "^IN_A$"
+edge = "left"
 at = [12.7, 20.0]
 rot = 90
 [[placement.anchor]]
 value = "^IN_B$"
+edge = "left"
 at = [12.7, 66.0]
 rot = 90
 [[placement.anchor]]
@@ -95,25 +101,32 @@ value = "^IS42S16400"
 at = [112.0, 40.0]
 [[placement.anchor]]  # rot 180: DM/DP (pins 7/8) face the USB connector
 value = "^FT2232HL"
+edge = "right"
 at = [99.0, 74.0]
 rot = 180
 [[placement.anchor]]
 value = "^93LC56B"
+edge = "right"
 at = [88.0, 83.0]
 [[placement.anchor]]  # next to OSCI/OSCO
 value = "^12MHz$"
+edge = "right"
 at = [107.95, 79.5]
 [[placement.anchor]]  # USB-B shell front face at the right edge
 value = "^USB_B$"
+edge = "right"
 at = [115.0, 71.0]
 [[placement.anchor]]  # flow-through between FT2232H DM/DP and J1
 value = "^USBLC6"
+edge = "right"
 at = [109.5, 74.5]
 [[placement.anchor]]
 value = "^TLV62569"
+edge = "right"
 at = [121.0, 57.0]
 [[placement.anchor]]
 value = "^GPIO$"
+edge = "top"
 at = [76.0, 6.0]
 rot = 90
 

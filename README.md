@@ -28,7 +28,7 @@ boardsmith route               # one stage: sch | board | place | route | check 
 boardsmith status
 ```
 C3 also reports a routability estimate (`reports/congestion.json`: routing demand per 2.5 mm
-cell, ratsnest crossings). Each stage prints a short summary; details go to `build/reports/`, and
+cell, ratsnest crossings) and, with compaction, the sizes it tried (`reports/compaction.json`). Each stage prints a short summary; details go to `build/reports/`, and
 `build/pipeline_state.json` records every stage. Outputs:
 - `build/kicad/`: KiCad project (labels-only schematic, board, net classes, lib tables)
 - `build/fab/`: Gerber zip, JLCPCB BOM and CPL
@@ -69,6 +69,11 @@ clearance = 0.15
 value = "^LTC2291"             # regex on value (or ref = "U3"), optional sheet regex
 at = [55.0, 44.0]
 rot = 0
+edge = "left"                  # optional: keep the offset from this edge when compacting
+
+[placement.compact]            # shrink the board while everything still fits, then
+enabled = true                 # confirm by routing (stepping back up if it fails)
+min_scale = 0.6
 
 [[placement.region]]           # floorplan: unanchored ICs of a sheet go in this area
 sheet = "front_end"            # regex on sheet (and/or value)
