@@ -815,8 +815,9 @@ Gates, in build order:
    the SKiDL netlist: supply span against absolute max and recommended range, datasheet power
    pins connected, kicad-happy's extraction consistency checks. kicad-happy's own
    `datasheet_verify` keeps running inside the C5 schematic analysis.
-5. **Package check**: footprint pad count (and pitch, when extracted) against the part's
-   datasheet package.
+5. **Package check**: every part's symbol pins on nets against its footprint's pads; for
+   parts with an extraction, pad count, pitch, thermal pad, pin numbers and body size against
+   the datasheet package.
 6. **Budget recheck**: `rail_current` constraints against the regulator's rated output
    current from the cache.
 
@@ -878,6 +879,22 @@ the parts with no extraction. Dual-ADC, with 6 extractions made by hand from the
 (OPA810, THS4521, TLV62569, AP2112, LP5907, LM27762): all pass (e.g. U8 VS 6.6 V within
 4.75–27 V; U4 VIN 5 V within 2.7–5.5 V); 13 parts not covered. With the THS4521's VS− moved
 to −3V3A and the LP5907's input disconnected, both fail as HARD errors.
+
+**Gate 5 done (2026-10-14).** `src/boardsmith/review/package_check.py`. Footprints are read
+from the fp-lib-table C1 wrote (the libraries the design was built with), else from KiCad's
+stock directory plus `[libraries] footprints`.
+- `PKG:pins`, every part with a footprint: a symbol pin on a net with no pad of the same number
+  is a HARD error (the USB-C SH/S1 class; KiCad drops the connection silently). Footprints not
+  found are a warning.
+- `PKG:<MPN>`, parts with an extraction: pad count against `pin_count` (with or without the
+  exposed pad, since extractions differ on counting it), pitch (the commonest nearest-neighbour
+  pad spacing, or twice it for depopulated packages like SOT-23-3), thermal pad, datasheet pin
+  numbers without a pad (errors); F.Fab outline against `body_mm` (warning). An exposed pad is
+  one 2.5× the median pad area. Same trust rule as gate 4.
+
+Dual-ADC: 26 of 26 footprints found, all pins have pads, the 6 extracted parts match. With
+U1 (SOT-23-5) on SOIC-8, U4 (WSON-12) on SOT-23-6 and U5 (SOT-23-6) on SOT-23, all fail
+HARD: pad count, pitch, thermal pad, and the unpadded pins named.
 
 ## 5. Expected gains (estimates, not measurements)
 

@@ -128,13 +128,25 @@ def check_part(comp, ex, rails, ground, dc, verify=None):
         for i in verify.verify_v14_extraction(ex):
             out.append({"severity": "warning", "check": "extraction",
                         "detail": f"{ref} extraction {i['path']}: {i['description']}"})
+    return trust(out, ex)
+
+
+def trust(findings, ex):
+    """Errors from an extraction under the trust threshold become warnings."""
     q = (ex.get("extraction") or {}).get("quality_score")
     if isinstance(q, (int, float)) and q < TRUST:
-        for f in out:
+        for f in findings:
             if f["severity"] == "error":
                 f["severity"] = "warning"
                 f["detail"] += f" (extraction quality {q} < {TRUST}: not trusted as an error)"
-    return out
+    return findings
+
+
+def result(rid, kind, refs, findings):
+    """A gate result from findings: HARD if any error; FAIL on an error or warning."""
+    sev = {f["severity"] for f in findings}
+    return {"id": rid, "kind": kind, "refs": refs, "tag": "HARD" if "error" in sev else "SOFT",
+            "status": "FAIL" if sev & {"error", "warning"} else "PASS", "findings": findings}
 
 
 def check(netlist, store, dc, prefixes):
@@ -157,11 +169,7 @@ def check(netlist, store, dc, prefixes):
         if store.stale(mpn):
             findings.append({"severity": "warning", "check": "extraction",
                              "detail": f"{mpn}: extraction is stale ({store.stale(mpn)})"})
-        sev = {f["severity"] for f in findings}
-        results.append({"id": f"DS:{mpn}", "kind": "datasheet", "refs": [c["ref"] for c in comps],
-                        "tag": "HARD" if "error" in sev else "SOFT",
-                        "status": "FAIL" if sev & {"error", "warning"} else "PASS",
-                        "findings": findings})
+        results.append(result(f"DS:{mpn}", "datasheet", [c["ref"] for c in comps], findings))
     if missing:
         results.append({"id": "DS:coverage", "kind": "datasheet", "tag": "SOFT", "status": "NOT CHECKED",
                         "why": f"{len(missing)} parts have no extraction: {', '.join(missing)}"})
