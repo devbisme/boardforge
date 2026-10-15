@@ -18,6 +18,17 @@ KINDS = {
 TAGS = ("HARD", "SOFT", "ASSUMED")
 
 
+def path(proj):
+    """The project's constraints.json ([review] constraints)."""
+    return os.path.join(proj.root, proj.cfg.get("review", {}).get("constraints", "constraints.json"))
+
+
+def rail_loads(proj):
+    """{net: A} from the valid rail_current constraints."""
+    cs, _ = load(path(proj))
+    return {c["net"]: c["max_a"] for c in cs if c.get("kind") == "rail_current" and not c.get("invalid")}
+
+
 def load(path):
     """(constraints, problems). A missing file gives ([], [])."""
     if not os.path.exists(path):

@@ -896,6 +896,21 @@ Dual-ADC: 26 of 26 footprints found, all pins have pads, the 6 extracted parts m
 U1 (SOT-23-5) on SOIC-8, U4 (WSON-12) on SOT-23-6 and U5 (SOT-23-6) on SOT-23, all fail
 HARD: pad count, pitch, thermal pad, and the unpadded pins named.
 
+**Gate 6 done (2026-10-14).** `src/boardsmith/review/budget.py`. A `rail_current` constraint's
+`max_a` is the rail's load. Its source is the one part with a power-output pin on the net
+(from the extraction's pinout, else the symbol's pin types; PWR_FLAGs excluded), directly or
+behind one series L/FB part (a buck's SW pin). The load is compared with the source's
+`regulator.iout_max` (max, else typ, else a guaranteed min); over it fails with the
+constraint's tag, subject to the gate 4 trust rule. No source, several sources or no rating:
+NOT CHECKED. C5 now takes its thermal loads from these constraints, with
+`[checks.rail_currents]` overriding per net.
+
+Dual-ADC: RAIL-3V3 0.25 A on +3V3 from U1 TLV62569 via L1, rated 2 A (12 %): PASS. Added test
+constraints: +1V2 0.15 A on the AP2112 (0.6 A guaranteed) passes; −3V3A 0.3 A on the LM27762
+(0.25 A per output) fails HARD; +5V is NOT CHECKED (USB VBUS through a fuse and a bead, no
+regulator). Not handled yet (visible debt): upstream propagation, i.e. a regulator's input
+current as load on the rail that feeds it.
+
 ## 5. Expected gains (estimates, not measurements)
 
 | Criterion | Baseline in runs | Expected | Why |

@@ -94,8 +94,8 @@ partner = "^LTC2291"           # the part these signals go to
 chain = ["freerouting", "astar"]
 preroute = ["USB_DP", "USB_DM"]
 
-[checks.rail_currents]         # regulator loads (A) for the thermal check; otherwise
-"+1V2" = 0.05                  # kicad-happy guesses them from output capacitance
+[checks.rail_currents]         # regulator loads (A) for the thermal check, overriding
+"+1V2" = 0.05                  # constraints.json rail_current; else kicad-happy guesses
 ```
 Net names in the config are SKiDL names; boardsmith maps them to KiCad's.
 
@@ -118,6 +118,10 @@ type = "fda"                   # or "opamp"
 gbw_hz = 93e6                  # overridden by a part-fact cache extraction
 pins = { outp = 4, outn = 5 }  # roles the symbol's pin names don't give
 ```
+`rail_current` (`net`, `max_a`: the load on the rail) is checked against the rated output
+current (`regulator.iout_max`) of the part that makes the rail, found by its power-output pin
+on the net or behind one series inductor or ferrite bead. The same loads feed the C5 thermal
+check.
 `review` also checks each part that has a datasheet extraction (see Part-fact cache), as
 `DS:<MPN>`: the voltage across its supply pins against the absolute maximum (error) and
 recommended range (warning), and its datasheet power pins connected. `DS:coverage` lists the

@@ -21,6 +21,7 @@ from boardsmith.drc import drc, erc
 from boardsmith.kicad import PKG_PARENT, Kicad
 from boardsmith.netlist import compare, read_generic, read_kicad_netlist
 from boardsmith.pcbfile import stable_uuids
+from boardsmith.review import constraints
 from boardsmith.state import STAGES, State
 
 RAIL_RX = re.compile(r"^([+-]?\d+V\d*\w*|V(CC|DD|EE|SS|BUS|IN|BAT|REF)\w*|\w*GND\w*|\w*VSS\w*)$", re.I)
@@ -571,7 +572,9 @@ class Pipeline:
         with open(os.path.join(self.p.reports, "geometry.json"), "w") as f:
             json.dump(m, f, indent=1)
         dfm = self.fab.dfm_checks(m)
-        currents = {self.knet(n, None, warnings): a for n, a in ck.get("rail_currents", {}).items()}
+        # rail loads: constraints.json rail_current entries, overridden by [checks.rail_currents]
+        loads = constraints.rail_loads(self.p) | ck.get("rail_currents", {})
+        currents = {self.knet(n, None, warnings): a for n, a in loads.items()}
         w = datasheets.expose(self.p)
         if w:
             warnings.append(w)
@@ -580,7 +583,7 @@ class Pipeline:
         an = analysis.run_steps(ctx, ck["analyzers"], ck.get("steps"))
         unused = set(currents) - {rail for _, rail, _ in ctx.loads}
         if unused and {"thermal", "cross_verify"} & set(ctx.outputs):
-            warnings.append(f"checks.rail_currents: no regulator outputs {sorted(unused)}")
+            warnings.append(f"rail currents: no regulator outputs {sorted(unused)}")
         with open(os.path.join(self.p.reports, "analysis_outputs.json"), "w") as f:
             json.dump(ctx.outputs, f, indent=1)
 

@@ -8,13 +8,13 @@ import time
 
 from boardsmith import datasheets
 from boardsmith.review import constraints as cons
-from boardsmith.review import datasheet_check, package_check, spice_path
+from boardsmith.review import budget, datasheet_check, package_check, spice_path
 
 
 def review(proj):
     cfg = proj.cfg.get("review", {})
     netlist_file = os.path.join(proj.out, "netlist.json")
-    path = os.path.join(proj.root, cfg.get("constraints", "constraints.json"))
+    path = cons.path(proj)
     cs, problems = cons.load(path)
     results = []
     netlist = None
@@ -40,9 +40,8 @@ def review(proj):
         elif c.get("kind") == "ac_gain" and netlist:
             r = spice_path.check(netlist, c, cfg.get("models", {}), ngspice, cfg.get("dc", {}),
                                  os.path.join(work, c["id"]), {k: v for k, v in facts.items() if v})
-        elif c.get("kind") == "rail_current":
-            r = {"id": c["id"], "kind": c["kind"], "tag": c["tag"], "status": "NOT CHECKED",
-                 "why": "needs the regulator rating check (gate 6, not built yet)"}
+        elif c.get("kind") == "rail_current" and netlist:
+            r = budget.check(netlist, c, store)
         else:
             r = {"id": c["id"], "kind": c.get("kind"), "tag": c["tag"], "status": "NOT CHECKED",
                  "why": f"no checker for kind {c.get('kind')!r}"}
