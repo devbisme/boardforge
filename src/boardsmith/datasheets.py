@@ -60,6 +60,10 @@ def mpn_of(comp):
     return None
 
 
+def ref_prefix(ref):
+    return re.match(r"[A-Za-z]*", ref).group(0)
+
+
 def parts(netlist, prefixes):
     """{mpn: {refs, value, footprint, url, wanted}} from netlist.json. ``wanted``: some ref
     has one of ``prefixes`` (the parts whose facts the checks use; passives are not)."""
@@ -71,7 +75,7 @@ def parts(netlist, prefixes):
         p = out.setdefault(mpn, {"refs": [], "value": c.get("value"), "footprint": c.get("footprint"),
                                  "url": None, "wanted": False})
         p["refs"].append(c["ref"])
-        p["wanted"] |= re.match(r"[A-Za-z]*", c["ref"]).group(0) in prefixes
+        p["wanted"] |= ref_prefix(c["ref"]) in prefixes
         url = netlist.get("symbols", {}).get(c.get("lib_id"), {}).get("datasheet") or ""
         if url.startswith("http") and not p["url"]:
             p["url"] = url

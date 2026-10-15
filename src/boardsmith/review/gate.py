@@ -1,6 +1,6 @@
-"""B4 review gate (§4.10): checks constraints.json against the design and writes
-reports/review.json. Status per constraint: PASS, FAIL or NOT CHECKED; the gate fails on a
-HARD failure and warns on a SOFT failure or anything not checked."""
+"""B4 review gate (§4.10): checks constraints.json, and the parts against their datasheet
+extractions, and writes reports/review.json. Status per result: PASS, FAIL or NOT CHECKED;
+the gate fails on a HARD failure and warns on a SOFT failure or anything not checked."""
 
 import json
 import os
@@ -8,7 +8,7 @@ import time
 
 from boardsmith import datasheets
 from boardsmith.review import constraints as cons
-from boardsmith.review import spice_path
+from boardsmith.review import datasheet_check, spice_path
 
 
 def review(proj):
@@ -50,6 +50,12 @@ def review(proj):
         if c.get("why"):
             r["requirement"] = c["why"]
         results.append(r)
+    if netlist:
+        t0 = time.time()
+        for r in datasheet_check.check(netlist, store, cfg.get("dc", {}),
+                                       set(proj.cfg["datasheets"]["prefixes"])):
+            r["seconds"] = round(time.time() - t0, 2)
+            results.append(r)
     hard_fail = [r["id"] for r in results if r["status"] == "FAIL" and r["tag"] == "HARD"]
     soft_fail = [r["id"] for r in results if r["status"] == "FAIL" and r["tag"] != "HARD"]
     unchecked = [r["id"] for r in results if r["status"] == "NOT CHECKED"]

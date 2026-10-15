@@ -84,6 +84,17 @@ def rail_volts(name, dc):
     return -v if m.group(1) == "-" else v
 
 
+def ground_and_rails(netlist, dc):
+    """(ground nets, rail nets): rails are nets with a power pin, or with a [review] dc value."""
+    names = {n["name"] for n in netlist["nets"]}
+    ground = {n for n in names if GROUND.match(n.split("/")[-1])}
+    power_pin = {n["name"] for n in netlist["nets"]
+                 if any(x.get("pintype", "").upper().replace("-", "_") in ("POWER_IN", "POWER_OUT")
+                        for x in n["nodes"])}
+    rails = (power_pin | (set(dc) & names)) - ground - {n["name"] for n in netlist["nets"] if n.get("nc")}
+    return ground, {n for n in rails if "NOCONNECT" not in n.upper()}
+
+
 def find_model(comp, models):
     keys = [comp.get("value", ""), comp.get("fields", {}).get("MPN", ""), comp.get("lib_id", "")]
     for rx, m in models.items():
@@ -144,12 +155,7 @@ def testbench(netlist, c, models, dc=None, source_ohms=0.0, facts=None):
     for n in [c["in"], *outs]:
         if n not in nets:
             return None, [], f"net {n!r} isn't in the netlist"
-    ground = {n for n in nets if GROUND.match(n.split("/")[-1])}
-    power_pin = {n["name"] for n in netlist["nets"]
-                 if any(x.get("pintype", "").upper().replace("-", "_") in ("POWER_IN", "POWER_OUT")
-                        for x in n["nodes"])}
-    rails = (power_pin | set(dc)) - ground - {n["name"] for n in netlist["nets"] if n.get("nc")}
-    rails = {n for n in rails if "NOCONNECT" not in n.upper()}
+    ground, rails = ground_and_rails(netlist, dc)
     lines, subckts, notes, omitted, unmodelled = [], {}, [], [], []
     edges = []  # (net, net) the signal can cross
     gen = None

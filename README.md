@@ -118,6 +118,10 @@ type = "fda"                   # or "opamp"
 gbw_hz = 93e6                  # overridden by a part-fact cache extraction
 pins = { outp = 4, outn = 5 }  # roles the symbol's pin names don't give
 ```
+`review` also checks each part that has a datasheet extraction (see Part-fact cache), as
+`DS:<MPN>`: the voltage across its supply pins against the absolute maximum (error) and
+recommended range (warning), and its datasheet power pins connected. `DS:coverage` lists the
+parts without an extraction.
 
 ### Part-fact cache
 Datasheet PDFs and their structured extractions, in kicad-happy's layout
@@ -152,7 +156,7 @@ src/boardsmith/         package
   routers/              router interface: Freerouting (Specctra), A*
   fabs/<fab>/           fab adapters: profile.toml + adapter
   analysis/             analysis-step registry (kicad-happy analyzers by default)
-  review/               B4 gate: constraints.json, SPICE path testbenches
+  review/               B4 gate: constraints.json, SPICE path testbenches, datasheet check
   datasheets.py         part-fact cache: status, sync, publish
   vendor/kicad_happy/   vendored kicad-happy (MIT)
 test/                   pytest; test/examples/ has the tiny and dual-ADC projects

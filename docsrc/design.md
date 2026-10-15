@@ -811,8 +811,10 @@ Gates, in build order:
    it (`--fresh` skips it), then runs the PDF fallbacks (local `search` directories, the
    symbol's datasheet URL, LCSC); `publish` copies new extractions back. Extraction itself
    is LLM work (the librarian agent, following kicad-happy's dispatch recipe).
-4. **`datasheet_verify`**: kicad-happy's schematic analyzer already runs it when
-   `<project>/datasheets/extracted/` exists; `review` reports its findings as a check.
+4. **Datasheet check** (`review`, results `DS:<MPN>`): each part with an extraction against
+   the SKiDL netlist: supply span against absolute max and recommended range, datasheet power
+   pins connected, kicad-happy's extraction consistency checks. kicad-happy's own
+   `datasheet_verify` keeps running inside the C5 schematic analysis.
 5. **Package check**: footprint pad count (and pitch, when extracted) against the part's
    datasheet package.
 6. **Budget recheck**: `rail_current` constraints against the regulator's rated output
@@ -858,6 +860,24 @@ dual-ADC design (19 ICs, diodes and crystals with MPNs):
   part ("U8: GBW 70 MHz from OPA810IDR datasheet p5"). Checking the typed-in figures against
   the datasheets found the THS4521's wrong: 145 MHz is its G = 1 bandwidth; its GBW is 93 MHz
   at 3.3 V. ALIAS-A/B move from −3.4 to −3.49 dB.
+
+**Gate 4 done (2026-10-14).** `src/boardsmith/review/datasheet_check.py`. Not a wrapper of
+kicad-happy's `datasheet_verify` as planned: on v1.4 extractions that can only check each
+pin's net voltage to ground (wrong for split supplies: an op-amp on ±3.3 V sees 6.6 V), and
+its external-component and decoupling checks need fields v1.4 doesn't have. It still runs in
+C5. The boardsmith check, per part with an extraction:
+- supply span (highest supply-pin rail minus lowest, ground 0 V) per `power_domain`, or the
+  part's one supply key: over absolute max is an error, outside recommended a warning;
+- a datasheet power-input pin unconnected is an error; on a signal net a warning (datasheets
+  call SW and FB pins "PWR", and extractions copy that);
+- kicad-happy's `verify_v14_extraction` findings and staleness as warnings;
+- an extraction scoring under 60 (kicad-happy's trust threshold) can't fail the gate.
+
+Results are `DS:<MPN>` (HARD when an error, else SOFT) plus `DS:coverage`, NOT CHECKED, naming
+the parts with no extraction. Dual-ADC, with 6 extractions made by hand from the datasheets
+(OPA810, THS4521, TLV62569, AP2112, LP5907, LM27762): all pass (e.g. U8 VS 6.6 V within
+4.75–27 V; U4 VIN 5 V within 2.7–5.5 V); 13 parts not covered. With the THS4521's VS− moved
+to −3V3A and the LP5907's input disconnected, both fail as HARD errors.
 
 ## 5. Expected gains (estimates, not measurements)
 

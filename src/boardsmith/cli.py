@@ -59,8 +59,11 @@ def cmd_review(args):
     print(f"[review] {rep['status']}: {rep['counts']} (reports/review.json)")
     for r in rep["results"]:
         detail = (f"{r['gain_db']} dB at {r['at_hz']:g} Hz, limit {r['limit']}" if "gain_db" in r
-                  else r.get("why", ""))
+                  else ",".join(r["refs"]) if "refs" in r else r.get("why", ""))
         print(f"  {r['status']:11} {r['tag']:7} {r['id']}: {detail}")
+        for f in r.get("findings", []):
+            if args.verbose or f["severity"] != "info":
+                print(f"      {f['severity']}: {f['detail']}")
         if args.verbose:
             for n in r.get("notes", []):
                 print(f"      {n}")
