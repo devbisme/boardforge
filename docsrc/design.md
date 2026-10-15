@@ -951,6 +951,50 @@ adapted lookup scripts, every new CLI action and the BOM gate were run on the du
 project or a small modular test design. **Not yet tested:** a full `/new-circuit` run with
 the agents — that is the step 6 rerun.
 
+**First plugin run, and fixes (2026-10-15).** `ai-circuit-design-tests/boardsmith-tests/
+dual-adc-usb-1`: the dual-ADC prompt went from the prompt to a routed 4-layer board with 0
+DRC errors, for $27.42 (71.3M tokens, Opus 5.5), with no help. The scripted gates fed ERC,
+BOM and package errors back to the coders before review. The run exposed these defects, now
+fixed:
+- **Placement ignored connectivity for unregioned ICs.** They were shelf-packed in sheet
+  order, which left both analog front ends 60–110 mm from their BNCs and the ADC's resistor
+  packs in a far corner. C3 now places every multi-pin part at the weighted centroid of
+  what it connects to, counting chains of up to three 2-pin parts, with connectors pulling
+  3×, and keeps `ic_gap` between ICs.
+  - Without that gap, ICs packed courtyard to courtyard and 20 connections didn't route.
+  - On the run's own anchors and board, with default settings:
+    - J2→U8 dropped from 72 to 23 mm, J3→U10 from 109 to 33 mm, RN1→U13 from 56 to 16 mm;
+    - total ratsnest is 4054 mm against 7574;
+    - one routing pass gives 0 unrouted, 0 DRC errors and a passing release gate in 8 min.
+
+    The run needed three tries and a hand-set clearance to get there.
+- **No placement check.** C3 now reports each connector signal's distance to its first IC
+  and warns over `connector_path_mm` (25 mm). The plugin's driver writes a floorplan, places
+  with `--to c3`, and fixes those warnings before it routes (`plugin/rules/physical.md`, new).
+- **Connector rotation guessed.** The new anchor key `facing` picks the rotation that points
+  the side where the body overhangs its pads at that edge. It gave the rotation the run's
+  driver needed two routing runs to find.
+- **Fine-pitch parts needed a hand-set 0.10 mm clearance**, which the release gate then
+  reported as a costlier fab tier. A per-footprint clearance override was tried first: DRC
+  accepted it, but traces escaping the FPGA still needed 0.15 mm and three of its pins
+  didn't route. Now boardsmith lowers the board clearance to the finest-pitch footprint's
+  pad gap, down to the fab-tier minimum, once before C2, for every stage and router. The
+  fab-tier fix below keeps that within JLCPCB's 4-layer standard tier.
+- **The release gate's DFM tier used kicad-happy's 1–2 layer limits.** DFM findings are now
+  re-judged against the board's fab tier (JLCPCB multilayer: 0.09 mm).
+- **The JLCPCB BOM lost LCSC numbers on ranged designator lines** (`FB1-FB4`). The driver
+  blamed the circuit code, but the fields were there.
+- **Review false alarms:**
+  - an FDA known from the cache was modelled as an op-amp; OUT+/OUT- now imply FDA;
+  - supply ranges listed per mode (FT232H VREGIN 3.3 V or 5 V) now pass if any range fits;
+  - package body length/width order no longer matters;
+  - load switches are rated by their recommended IOUT.
+- **Wrong-part PDFs.** Image-only PDFs passed the identity check as "can't tell". A download
+  or `add` now needs the PDF's text to name the part (`add --force` overrides).
+- **BOM gate:** now compares the `lcsc` column too.
+- **Requirements:** the interview and architect now put the anti-alias constraint at fs/2,
+  with the depth from the resolution. The run's driver had put it at fs.
+
 ## 5. Expected gains (estimates, not measurements)
 
 | Criterion | Baseline in runs | Expected | Why |

@@ -92,3 +92,14 @@ def test_gate_fails_on_datasheet_error(tmp_path):
     assert rep["status"] == "FAIL" and rep["hard_fail"] == ["DS:FDA1"]
     assert res["DS:coverage"]["status"] == "NOT CHECKED" and "NOFACTS" in res["DS:coverage"]["why"]
     assert any("stale" in f["detail"] for f in res["DS:FDA1"]["findings"])  # no PDF behind it
+
+
+def test_alternative_supply_ranges():
+    # FT232H VREGIN: 3.3..3.6 V (3.3 V input mode) or 3.6..5.5 V (5 V mode); 5 V fits the second
+    ex = _fda()
+    ex["base"]["recommended_operating"] = {"VS": _sv(3.3, 3.6) + _sv(3.6, 5.5)}
+    ex["base"]["absolute_max"] = {}
+    f = _run({"3": "+3V3", "6": "GND"}, ex)
+    assert _sev(f) == [("info", "supply")] and "3.3..3.6 or 3.6..5.5" in f[0]["detail"]
+    ex["base"]["recommended_operating"] = {"VS": _sv(3.6, 5.5) + _sv(4.5, 5.5)}
+    assert _sev(_run({"3": "+3V3", "6": "GND"}, ex)) == [("warning", "supply")]

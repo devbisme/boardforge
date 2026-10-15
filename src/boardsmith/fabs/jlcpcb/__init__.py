@@ -7,6 +7,7 @@ import sys
 
 from boardsmith.analysis import vendor_script
 from boardsmith.fabs.base import FabAdapter, read_csv, write_csv
+from boardsmith.review.bom_check import expand_refdes
 
 
 class Adapter(FabAdapter):
@@ -23,7 +24,9 @@ class Adapter(FabAdapter):
         ci, di = head.index("LCSC Part #"), head.index("Designator")
         missing = []
         for row in rows[1:]:
-            refs = [x.strip() for x in row[di].replace(";", ",").split(",") if x.strip()]
+            # KiCad writes designator ranges ("FB1-FB4"): a line that was only a range lost
+            # its LCSC number (dual-ADC run 1, FB1-FB4 and RN1-RN7)
+            refs = expand_refdes(row[di].replace(";", ","))
             lcsc = sorted({fields.get(ref, {}).get("LCSC", "") for ref in refs} - {""})
             row[ci] = ",".join(lcsc)
             if not lcsc:

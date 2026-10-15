@@ -29,7 +29,7 @@ elsewhere — link here.
 | 4 | datasheets | `datasheet-librarian` | `03_sourcing.md` | `handoffs/04_datasheets.md` | `datasheets/*` (PDFs, `extracted/<MPN>.json`, `<MPN>_SUMMARY.md`) |
 | 5 | coding | `skidl-coder` **or** `skidl-block-coder`×N + `skidl-assembler` | `04_datasheets.md` | `handoffs/05_coding.md` (+ `05_blocks/<id>.md`) | `circuits/*` |
 | 6 | review | `erc-reviewer` | `05_coding.md` | `handoffs/06_review.md` | `review_report.md`, `build/reports/review.json` — **gate below** |
-| 7 | physical | main thread (`boardsmith run --from c2`) | `06_review.md` | — | `build/` (board, DRC, fab zip) |
+| 7 | physical | main thread (`rules/physical.md`: floorplan, `boardsmith run`) | `06_review.md` | — | `boardsmith.toml` floorplan, `build/` (board, DRC, fab zip) |
 | — | design review (optional) | main thread (`/design-review`) | `06_review.md` | — | `design_review.md` |
 
 **Phase 6 gate:** `boardsmith sch` reports 0 SKiDL ERC errors, 0 KiCad ERC errors and exact

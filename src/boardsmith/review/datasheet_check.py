@@ -30,6 +30,16 @@ def _lim(specs, field):
     return None
 
 
+def _ranges(specs):
+    """[(min, max)] of each SpecValue that has either (None where open)."""
+    out = []
+    for v in specs or []:
+        if isinstance(v, dict) and (v.get("min") is not None or v.get("max") is not None):
+            out.append((None if v.get("min") is None else float(v["min"]),
+                        None if v.get("max") is None else float(v["max"])))
+    return out
+
+
 def _supply_key(ro):
     for k in SUPPLY_KEYS:
         if k in ro:
@@ -95,18 +105,21 @@ def check_part(comp, ex, rails, ground, dc, verify=None):
         span = round(max(vs) - min(vs + gnd_v), 3)
         nets = ", ".join(sorted({n for _, n in dpins}))
         amax = _lim(am.get(f"{key}_max") or am.get(key), "max")
-        lo, hi = _lim(ro.get(key), "min"), _lim(ro.get(key), "max")
+        # Several entries are alternative modes (FT232H VREGIN: 3.3 V or 5 V input): any fits.
+        ranges = _ranges(ro.get(key))
+        text = " or ".join(f"{'-' if a is None else f'{a:g}'}..{'-' if b is None else f'{b:g}'}"
+                           for a, b in ranges) or "-..-"
+        fits = not ranges or any((a is None or span >= a) and (b is None or span <= b) for a, b in ranges)
         if amax is not None and span > amax:
             out.append({"severity": "error", "check": "supply",
                         "detail": f"{ref} {key} = {span:g} V ({nets}) exceeds absolute max {amax:g} V"})
-        elif (lo is not None and span < lo) or (hi is not None and span > hi):
+        elif not fits:
             out.append({"severity": "warning", "check": "supply",
-                        "detail": f"{ref} {key} = {span:g} V ({nets}) outside recommended "
-                                  f"{lo if lo is not None else '-'}..{hi if hi is not None else '-'} V"})
+                        "detail": f"{ref} {key} = {span:g} V ({nets}) outside recommended {text} V"})
         else:
             out.append({"severity": "info", "check": "supply",
-                        "detail": f"{ref} {key} = {span:g} V within {lo if lo is not None else '-'}.."
-                                  f"{hi if hi is not None else '-'} V (abs max {amax if amax is not None else '-'})"})
+                        "detail": f"{ref} {key} = {span:g} V within {text} V "
+                                  f"(abs max {amax if amax is not None else '-'})"})
     if verify:
         for i in verify.verify_v14_extraction(ex):
             out.append({"severity": "warning", "check": "extraction",

@@ -97,6 +97,16 @@ def test_opamp_follower_and_fda(tmp_path):
     r = sp.check(nl, c, no_gbw, NGSPICE, dc={"VCM": 1.0}, workdir=str(tmp_path),
                  facts={"OPAX1": {"gbw_hz": 100e6, "source": "OPAX1 datasheet p3"}})
     assert r["status"] == "PASS" and "U1: GBW 100 MHz from OPAX1 datasheet p3" in r["notes"]
+    # an FDA known only from the part-fact cache (op-amp facts, no type): its OUT+/OUT- pins
+    # make it an FDA, not an op-amp with its outputs left open (dual-ADC run 1, THS4551)
+    fda_named = _sym("FDA", [("1", "+", "input"), ("2", "-", "input"), ("3", "OUT+", "output"),
+                             ("4", "OUT-", "output"), ("5", "V_{OCM}", "input"),
+                             ("6", "V_{S+}", "power_in"), ("7", "V_{S-}", "power_in")])
+    nl["symbols"]["lib:FDA"] = fda_named
+    parts[1]["fields"]["MPN"] = "FDAX1"
+    facts = {"OPAX1": {"gbw_hz": 100e6, "source": "a"}, "FDAX1": {"gbw_hz": 100e6, "source": "b"}}
+    r = sp.check(nl, c, {}, NGSPICE, dc={"VCM": 1.0}, workdir=str(tmp_path), facts=facts)
+    assert r["status"] == "PASS", (r.get("why"), r.get("notes"))
 
 
 @needs_ngspice

@@ -73,7 +73,10 @@ coder can see another's file to notice one.
 `generate_xml()`, imports from other blocks, or `return Interface(...)` — the function
 parameters *are* the interface.
 
-**After writing:** `python -m py_compile circuits/<circuit_name>/<block_id>.py`. The
+**After writing:** `python -m py_compile circuits/<circuit_name>/<block_id>.py` — compile
+only. Don't import or run the block to smoke-test it: SKiDL writes `.erc`/`.log` files into
+the current directory on import, and the dual-ADC run left a dozen of them in the project
+root. The assembler's `boardsmith sch` is the test. The
 post-write hook footprint-validates automatically; fix any bad string from its suggestion, or
 generate a footprint with `scripts/generate-footprint.py` (`rules/kicad-footprints.md`).
 You do not run ERC — the assembler does, on the whole circuit (`boardsmith sch`).

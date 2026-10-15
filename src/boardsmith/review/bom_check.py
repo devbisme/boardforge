@@ -1,6 +1,6 @@
 """BOM check (§4.10, ported from skidl-skills' ``validate-bom.py``): the sourced BOM CSV
-against the design as built (the SKiDL netlist), per reference designator: MPN, value,
-footprint, symbol, and the package column against the footprint's body variant.
+against the design as built (the SKiDL netlist), per reference designator: MPN, LCSC number,
+value, footprint, symbol, and the package column against the footprint's body variant.
 
 The value, refdes, symbol and package helpers are skidl-skills' (MIT, Copyright 2026 Nick
 Kraakman), copied unchanged; see plugin/ATTRIBUTION.md. A BOM row may cover several parts
@@ -198,6 +198,13 @@ def package_check(package, footprint):
 
 
 
+def _lcsc(comp):
+    for k, v in (comp.get("fields") or {}).items():
+        if k.casefold() in ("lcsc", "lcsc part", "lcsc#", "jlcpcb", "jlc") and str(v).strip():
+            return str(v).strip()
+    return ""
+
+
 def _symbol(comp):
     lib, _, name = (comp.get("lib_id") or "").partition(":")
     return f"{lib}:{name}" if name else ""
@@ -245,6 +252,13 @@ def check(netlist, path):
                 err(ref, f"no MPN field in the design; BOM says '{want}' (row {n})", "warning")
             elif want and want.casefold() != have.casefold():
                 err(ref, f"MPN: BOM '{want}' vs design '{have}' (row {n})")
+            want = cell(row, "lcsc")
+            have = _lcsc(c)
+            if want and not have:
+                # the fab BOM takes LCSC numbers from the design: JLCPCB can't place the part
+                err(ref, f"no LCSC field in the design; BOM says '{want}' (row {n})", "warning")
+            elif want and want.casefold() != have.casefold():
+                err(ref, f"LCSC: BOM '{want}' vs design '{have}' (row {n})")
             want = cell(row, "value")
             if want and not values_agree(want, c.get("value")):
                 err(ref, f"value: BOM '{want}' vs design '{c.get('value')}' (row {n})")

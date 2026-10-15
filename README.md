@@ -30,6 +30,9 @@ boardsmith status
 boardsmith review              # B4: constraints.json against the design (after C1)
 boardsmith datasheets sync     # part-fact cache: datasheet PDFs and extractions
 ```
+C3 places multi-pin parts next to what they connect to (through up to three series
+passives), and warns when a connector's signal reaches its first IC from more than
+`[placement] connector_path_mm` (25) away, such as an unbuffered input crossing the board.
 C3 also reports a routability estimate (`reports/congestion.json`: routing demand per 2.5 mm
 cell, ratsnest crossings) and, with compaction, the sizes it tried (`reports/compaction.json`). Each stage prints a short summary; details go to `build/reports/`, and
 `build/pipeline_state.json` records every stage. Outputs:
@@ -67,8 +70,8 @@ layers = 4
 planes = { "In1.Cu" = "GND", "In2.Cu" = "+3V3" }
 pours = ["GND"]                # outer-layer pours, stitched with vias
 
-[rules]                        # default net class
-track_width = 0.15
+[rules]                        # default net class; lowered to the pad gap of a finer-pitch
+track_width = 0.15             # footprint (0.4 mm QFN: 0.10), down to the fab tier minimum
 clearance = 0.15
 
 [[placement.anchor]]           # floorplan: fixed positions (mm from top-left)
@@ -76,6 +79,12 @@ value = "^LTC2291"             # regex on value (or ref = "U3"), optional sheet 
 at = [55.0, 44.0]
 rot = 0
 edge = "left"                  # optional: keep the offset from this edge when compacting
+
+[[placement.anchor]]           # a connector: rotation from the footprint, mating side out
+ref = "J2"
+at = [12.5, 22.0]
+facing = "left"
+edge = "left"
 
 [placement.compact]            # shrink the board while everything still fits, then
 enabled = true                 # confirm by routing (stepping back up if it fails)
@@ -133,8 +142,8 @@ parts without an extraction. `PKG:pins` checks that every symbol pin on a net ha
 pad (and every numbered pad has a pin), and `PKG:<MPN>` compares the footprint with the
 datasheet package: pad count, pitch, thermal pad, pin numbers and body size. `BOM` diffs the
 sourced BOM (`[review] bom`, default `sourcing/sourced_bom.csv`) against the design: MPN,
-value (numerically), footprint, symbol, and the `package` column against the footprint's
-body variant.
+LCSC number, value (numerically), footprint, symbol, and the `package` column against the
+footprint's body variant.
 
 ### Part-fact cache
 Datasheet PDFs and their structured extractions, in kicad-happy's layout
@@ -152,7 +161,8 @@ boardsmith datasheets paths    # kicad-happy's extraction prompts, schemas, exam
 boardsmith datasheets publish  # copy the project's extractions to the shared cache
 ```
 Before there is a netlist, the parts come from the sourced BOM CSV.
-`sync` looks for a missing PDF in the `search` directories (a file named after the part,
+A PDF is kept only if its text names the part; a scanned one needs `add --force` after a
+look by eye. `sync` looks for a missing PDF in the `search` directories (a file named after the part,
 `OPA810.pdf` for `OPA810IDR`), then downloads it from the symbol's datasheet URL, then
 LCSC. A download whose text doesn't name the part is discarded (needs `pdftotext`). `--fresh`
 skips the shared cache, `--offline` the downloads. Extraction itself is LLM work: an agent

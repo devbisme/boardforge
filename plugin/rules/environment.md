@@ -22,12 +22,13 @@ All from the project root.
 | `boardsmith review` | B4 gate: `constraints.json` (SPICE paths, rail budgets), datasheet checks, package checks, BOM vs design | `build/reports/review.json`; `-v` prints every finding |
 | `boardsmith datasheets status` | Per MPN: PDF, extraction, quality, staleness | — |
 | `boardsmith datasheets sync [--fresh] [--offline]` | Fill `datasheets/` from the shared cache, local PDFs, symbol URLs, LCSC | — |
-| `boardsmith datasheets add <MPN> <file-or-URL>` | Add one PDF after checking it names the part | — |
+| `boardsmith datasheets add <MPN> <file-or-URL> [--force]` | Add one PDF after checking its text names the part; a scanned PDF needs `--force` after you've checked it by eye | — |
 | `boardsmith datasheets check <MPN>...` | Validate extractions, fill derived fields, score | exit 1 if invalid |
 | `boardsmith datasheets show <MPN>...` | Markdown summary of extractions | — |
 | `boardsmith datasheets paths` | Where kicad-happy's extraction prompts and schemas are | — |
 | `boardsmith datasheets publish` | Copy finished extractions to the shared cache | — |
-| `boardsmith run --from c2` | Physical pipeline: board, placement, routing, checks, fab | `build/`; `boardsmith status` |
+| `boardsmith run --from c2 --to c3` | Board setup and placement only (seconds) | C3 warnings; `rules/physical.md` |
+| `boardsmith run --from c4` | Routing, checks, fab outputs (10–45 min) | `build/`; `boardsmith status` |
 
 `boardsmith sch` takes 10–20 s. Its one-line summary gives the SKiDL and KiCad ERC counts and
 whether the netlist round trip matched; read the log only when a count is non-zero.

@@ -141,6 +141,9 @@ def test_add_check_show(tmp_path):
         ds.add(proj, "LM358", other)
     with pytest.raises(ValueError, match="not a PDF"):
         ds.add(proj, "LM358", str(tmp_path / "d.py"))
+    scanned = _pdf(str(tmp_path / "scan.pdf"), "x")  # no text to check: refused unless forced
+    with pytest.raises(ValueError, match="no text to confirm"):
+        ds.add(proj, "LM358", scanned)
     good = _pdf(str(tmp_path / "lm.pdf"), "LM358 dual operational amplifier " * 20)
     assert os.path.basename(ds.add(proj, "LM358", good)) == "LM358.pdf"
     assert project.pdf("LM358")

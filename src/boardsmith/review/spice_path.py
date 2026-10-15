@@ -6,7 +6,8 @@ near-shorts, rails as DC sources, the constraint's ``in`` net driven by an AC so
 Op-amps use kicad-happy's behavioral model generator; fully-differential amplifiers get a
 small behavioral model here (kicad-happy has none). Model specs come from ``facts`` (the
 part-fact cache: {MPN: {gbw_hz, slew_vus, source}}) over ``models`` ([review.models]:
-{regex on value / MPN / symbol: {type: opamp|fda, gbw_hz, aol_db, slew_vus, pins}}).
+{regex on value / MPN / symbol: {type: opamp|fda, gbw_hz, aol_db, slew_vus, pins}}). Without a
+``type``, a part whose symbol has both OUT+ and OUT- is an FDA, anything else an op-amp.
 Diodes, LEDs, crystals and connectors are left out (listed in the notes); ICs without a model
 are open circuits, and a path that has to cross one is reported as not checked.
 """
@@ -182,7 +183,7 @@ def testbench(netlist, c, models, dc=None, source_ohms=0.0, facts=None):
             model = find_model(comp, models)
             f = facts.get(mpn_of(comp))
             if f:
-                model = {"type": "opamp", **(model or {}), **{k: v for k, v in f.items() if k != "source"}}
+                model = {**(model or {}), **{k: v for k, v in f.items() if k != "source"}}
                 if f.get("gbw_hz"):
                     notes.append(f"{ref}: GBW {f['gbw_hz'] / 1e6:g} MHz from {f['source']}")
             if model and not model.get("gbw_hz"):
@@ -193,8 +194,10 @@ def testbench(netlist, c, models, dc=None, source_ohms=0.0, facts=None):
                 if touches:
                     (unmodelled if comp.get("pins") and len(pn) > 2 else omitted).append(ref)
                 continue
-            kind = model.get("type", "opamp")
             roles = _roles(comp, pins_of.get(lib_id, {}), model)
+            # Unless the model says, a part with both differential outputs is an FDA: an
+            # op-amp model would leave its outputs open (a THS4551 with op-amp facts did).
+            kind = model.get("type") or ("fda" if {"outp", "outn"} <= roles.keys() else "opamp")
             need = FDA_PINS if kind == "fda" else OPAMP_PINS
             missing = [r for r in need if r not in roles or roles[r] not in pn]
             if missing:

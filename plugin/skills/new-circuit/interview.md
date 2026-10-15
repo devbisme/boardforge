@@ -17,6 +17,14 @@ must have concrete answers across all five areas:
 | Physical | size, SMD/TH, temperature range, regulatory |
 | Production | quantity, cost target, assembly house preference |
 
+**A sampled signal implies an anti-alias requirement**, even when nobody states one. Write it
+at the **Nyquist frequency, fs/2**, not at fs: everything between fs/2 and fs folds back into
+the band. Derive the depth from the resolution and say so: an N-bit converter needs about
+6.02·N dB to push an alias below 1 LSB (72 dB for 12 bits). If the user accepts less (the
+input has no content up there, or host-side filtering is fine), record their number and why
+as `[SOFT]`. In the dual-ADC run the driver wrote "≥ 20 dB at 10 MHz (first image of fs)"
+for a 10 MSPS, 12-bit design, and a 2nd-order filter passed a check that should have failed.
+
 Push back when an answer is an adjective. "Low power" is not a requirement; "≤10 µA in
 sleep, 40 mA active" is. When the user says "your call", record it as an open question
 rather than silently inventing an answer — phase 2 must know which numbers came from them

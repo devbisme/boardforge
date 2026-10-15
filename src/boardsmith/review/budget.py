@@ -1,12 +1,14 @@
 """Budget recheck (§4.10 gate 6): each ``rail_current`` constraint (the load the design
 puts on a rail) against the rated output current of the part that makes the rail, from the
-part-fact cache (``regulator.iout_max``).
+part-fact cache (``regulator.iout_max``, else a recommended IOUT for load switches).
 
 The source is the part with a power-output pin on the rail, directly or through one series
 inductor or ferrite bead (a buck's SW pin feeds the rail through its inductor). Power-output
 pins come from the extraction's pinout, else the symbol's pin types. PWR_FLAGs don't count.
 Not checked: no source, several sources, or a source with no rating in the cache.
 """
+
+import re
 
 from boardsmith import datasheets
 from boardsmith.review.datasheet_check import trust
@@ -15,11 +17,20 @@ SERIES = ("L", "FB")  # ref prefixes of parts a rail passes through
 
 
 def _rating(ex):
-    """(amps, basis) from regulator.iout_max: its max, else typ, else min; or (None, None)."""
+    """(amps, basis): regulator.iout_max (its max, else typ, else min); else, for parts the
+    extraction doesn't class as regulators (load switches, eFuses), the lowest maximum of
+    an output-current entry in base.recommended_operating (IOUT, IO, ILOAD). (None, None)
+    if neither exists."""
     for field in ("max", "typ", "min"):
         for s in ((ex or {}).get("regulator") or {}).get("iout_max") or []:
             if isinstance(s, dict) and s.get(field) is not None:
                 return float(s[field]), field
+    ro = ((ex or {}).get("base") or {}).get("recommended_operating") or {}
+    maxes = [float(v["max"]) for k, specs in ro.items() if re.fullmatch(r"I_?(OUT|O|LOAD)", k, re.I)
+             for v in specs or [] if isinstance(v, dict) and v.get("max") is not None
+             and v.get("unit") in ("A", None)]
+    if maxes:
+        return min(maxes), "recommended IOUT"
     return None, None
 
 

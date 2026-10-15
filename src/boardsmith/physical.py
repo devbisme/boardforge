@@ -6,6 +6,7 @@ would have nothing to work on.
 """
 
 import json
+import math
 import os
 import re
 import shutil
@@ -142,10 +143,37 @@ class Pipeline:
         nm = self.net_map()
         return {layer: self.knet(net, nm, warnings) for layer, net in self.cfg["board"]["planes"].items()}
 
+    def fit_clearance(self):
+        """Lower ``[rules] clearance`` (in the loaded config, so every stage and router uses
+        it) to the pad gap of the design's finest-pitch footprint, down to the fab tier's
+        minimum. Traces escaping a 0.4 mm-pitch QFN need it: a footprint-only override left
+        three FPGA pins unrouted on the dual-ADC board. Once per pipeline; returns notes."""
+        if getattr(self, "_clearance_fitted", False):
+            return []
+        fine = self.fine_pitch()
+        if fine is None:
+            return []  # no netlist yet (C1 hasn't run): try again at the next stage
+        self._clearance_fitted = True
+        gap, refs = fine
+        rules, notes = self.cfg["rules"], []
+        mins, _ = self.fab.design_rules(self.cfg["board"]["layers"])
+        if gap < rules["clearance"] - 1e-6:
+            new = max(math.floor(gap * 1000 + 1e-6) / 1000, mins["min_clearance"])
+            if new < rules["clearance"] - 1e-6:
+                notes.append(f"clearance {rules['clearance']:g} -> {new:g} mm for fine-pitch "
+                             f"{', '.join(refs[:4])} (pads {gap:.3f} mm apart)")
+                rules["clearance"] = new
+            if gap < mins["min_clearance"] - 1e-6:
+                notes.append(f"{', '.join(refs[:4])}: pads {gap:.3f} mm apart, below the "
+                             f"{self.fab.name} {self.fab.tier_name} minimum {mins['min_clearance']:g} mm")
+        return notes
+
     def run_stage(self, sid, fn):
         t0 = time.time()
+        notes = self.fit_clearance() if sid != "c1" else []
         try:
             status, summary, warnings = fn()
+            warnings = notes + warnings
         except Exception as e:  # noqa: BLE001 - recorded in the state file
             status, summary, warnings = "failed", {"error": f"{type(e).__name__}: {e}"}, []
             with open(os.path.join(self.p.reports, f"{sid}_error.txt"), "w") as f:
@@ -224,6 +252,25 @@ class Pipeline:
         return status, summary, warnings
 
     # ------------------------------------------------------------------ C2
+    def fine_pitch(self):
+        """(smallest pad gap in any of the design's footprints, [refs with it]) or None."""
+        from boardsmith.review.package_check import lib_paths, load_footprint, pad_gap
+
+        if not os.path.exists(self.p.netlist_json):
+            return None
+        with open(self.p.netlist_json) as f:
+            comps = json.load(f)["components"]
+        libs, gaps = lib_paths(self.p), {}
+        for c in comps:
+            fid = c.get("footprint")
+            if fid and fid not in gaps:
+                fp = load_footprint(fid, libs)
+                gaps[fid] = pad_gap(fp) if fp else math.inf
+        if not gaps or min(gaps.values()) == math.inf:
+            return None
+        g = min(gaps.values())
+        return g, sorted(c["ref"] for c in comps if gaps.get(c.get("footprint")) == g)
+
     def board_rules(self, warnings):
         b = self.cfg["board"]
         mins, notes = self.fab.design_rules(b["layers"])
@@ -296,6 +343,7 @@ class Pipeline:
                "ground_nets": ground, "bottom_decap_owners": pl["bottom_decap_owners"],
                "decap_bottom": pl["decap_bottom"], "decap_max_mm": self.cfg["checks"]["decap_max_mm"],
                "stretch_mm": pl["compact"]["stretch_mm"],
+               "connector_path_mm": pl["connector_path_mm"],
                "keepout": self.cfg["rules"]["edge_clearance"] + 0.2}
         r = self.k.pcb("place", job, self.p.work)
         if "placed" not in r:
@@ -670,8 +718,10 @@ class Pipeline:
                 if os.path.exists(out):
                     renders.append(os.path.basename(out))
 
+        limits, _ = self.fab.design_rules(self.cfg["board"]["layers"])
         ctx = analysis.Context(sch, pcb, os.path.join(self.p.reports, "analysis"), gerber_dir=gdir,
-                               drc_report=os.path.join(self.p.reports, "drc.json"))
+                               drc_report=os.path.join(self.p.reports, "drc.json"),
+                               fab_limits=dict(limits, name=f"{self.fab.name}/{self.fab.tier_name}"))
         prev = os.path.join(self.p.reports, "analysis_outputs.json")
         if os.path.exists(prev):
             with open(prev) as f:

@@ -49,6 +49,20 @@ def test_bom_mismatches(tmp_path):
     assert set(r["refs"]) == {"C1", "U1", "R9", "R1", "R2"}
 
 
+def test_bom_lcsc(tmp_path):
+    good = GOOD.replace("refdes,mpn,", "refdes,lcsc,mpn,").replace('"R1,R2",', '"R1,R2",C25804,')
+    good = good.replace("\nC1,,", "\nC1,,,").replace("\nU1,", "\nU1,C82344,")
+    nl = _nl()
+    nl["components"][0]["fields"]["LCSC"] = "C25804"
+    nl["components"][1]["fields"]["LCSC"] = "C99999"
+    p = tmp_path / "bom.csv"
+    p.write_text(good)
+    r = bc.check(nl, str(p))
+    d = [(f["severity"], f["detail"][:40]) for f in r["findings"] if f["severity"] != "info"]
+    assert ("error", "R2: LCSC: BOM 'C25804' vs design 'C99999") in d
+    assert ("warning", "U1: no LCSC field in the design; BOM say") in d
+
+
 def test_bom_missing_or_unreadable(tmp_path):
     r = bc.check(_nl(), str(tmp_path / "nope.csv"))
     assert r["status"] == "NOT CHECKED" and "no BOM CSV" in r["why"]

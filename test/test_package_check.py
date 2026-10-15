@@ -65,6 +65,8 @@ def test_package_against_extraction(tmp_path):
     body = pc.check_package("U1", "L:S5", fp, _ex(body={"length": 5.3, "width": 5.3}))
     assert _sev(body) == [("warning", "body")]
     assert _sev(pc.check_package("U1", "L:S5", fp, _ex(body={"length": 3.0, "width": 1.7}))) == [("info", "package")]
+    # a datasheet that calls the short side "length" still matches (CDCLVC1102 TSSOP-8)
+    assert _sev(pc.check_package("U1", "L:S5", fp, _ex(body={"length": 1.7, "width": 3.0}))) == [("info", "package")]
     # an untrusted extraction can't fail the gate
     assert _sev(pc.check_package("U1", "L:S5", fp, _ex(n=8, quality=40))) == [("warning", "pin_count")]
 
@@ -96,3 +98,12 @@ def test_gate_results(tmp_path):
     assert "['6']" in err["detail"] and pins["why"] == "1 of 2 footprints found"
     assert res["PKG:REG1"]["status"] == "PASS" and "PKG:OTHER" not in res
     assert pc.check(nl, Store(), {})[0]["status"] == "NOT CHECKED"
+
+
+def test_pad_gap(tmp_path):
+    # SOT5's pads 1-3 overlap (deliberate in this fixture: skipped); pads 4-5 are 0.8 mm apart.
+    # QFN: pads 1-2 are 0.2 apart, the exposed pad 3 sits 0.1 below pad 1.
+    libs = _libs(tmp_path, S5=SOT5, QFN=_pad(1, 0, 0, 0.2, 0.8) + _pad(2, 0.4, 0, 0.2, 0.8)
+                 + _pad(3, 0.2, 2, 3, 3) + _pad(3, 0.2, 2.5, 0.5, 0.5))
+    assert abs(pc.pad_gap(pc.load_footprint("L:S5", libs)) - 0.8) < 1e-9
+    assert abs(pc.pad_gap(pc.load_footprint("L:QFN", libs)) - 0.1) < 1e-9

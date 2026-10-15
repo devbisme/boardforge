@@ -1,10 +1,12 @@
 """C3: placement. Run 2's placer, with its design-specific tables moved into the job.
 
 1. Anchors (from the floorplan in boardsmith.toml) fix the main parts.
-2. Other multi-pin parts go inside the first floorplan region whose sheet/value regexes
-   match them, most-connected first, each at the centroid of its connections to parts
-   already placed and in the rotation that shortens them most. Parts with no region are
-   shelf-packed in sheet order.
+2. Other multi-pin parts, most-connected first, each at the centroid of its connections to
+   parts already placed (directly or through a chain of up to 3 2-pin parts) and in the
+   rotation that
+   shortens them most, inside the first floorplan region whose sheet/value regexes match
+   it, else anywhere on the board, keeping ``ic_gap`` between ICs for their passives and
+   fanout. Parts connected to nothing placed are shelf-packed in sheet order.
 3. Passives go next to the pad they serve, repeated so chains (R -> C -> IC) resolve.
    Decaps go first, smallest value first, so the high-frequency ones get the spots nearest
    the pins. Decaps of ``bottom_decap_owners`` go on B.Cu under the pin row; with
@@ -14,11 +16,13 @@
 
 Job: pcb, design_size ([w, h] the anchor and region positions are for; on a smaller board
 they scale, except an anchor's offset from the edges it names),
-anchors [{ref|value, sheet, at, rot, side, edge (left|right|top|bottom or a list)}],
+anchors [{ref|value, sheet, at, rot, side, edge (left|right|top|bottom or a list),
+facing (left|right|top|bottom: the rotation that points a connector's mating side there)}],
 regions [{sheet, value, rect (mm from the top-left corner) | area (fractions of the board)}],
 ic_gap (mm between shelf-packed parts), plane_nets, rails, ground_nets,
 bottom_decap_owners (regex), decap_bottom (bool), decap_max_mm, keepout (mm around the edge),
-stretch_mm (passives moved further than this from their target count as ``stretch.far``).
+stretch_mm (passives moved further than this from their target count as ``stretch.far``),
+connector_path_mm (warn when a connector's signal reaches its first IC from further away).
 """
 
 import math
@@ -27,6 +31,8 @@ import re
 import pcbnew
 
 from boardsmith.pcb.common import MM, TOMM, courtyard_rect, edge_rect, farads, overlap, pt, run
+
+CONNECTOR = re.compile(r"(J|P|CN)\d")
 
 
 def place(job):
@@ -48,6 +54,7 @@ def place(job):
         for n in ns:
             net_size[n] = net_size.get(n, 0) + 1
 
+    ic_halos = []  # courtyard + ic_gap/2 of placed multi-pin parts (other ICs keep out)
     occupied = {"F": [courtyard_rect(fps[r], 0.5) for r in holes],
                 "B": [courtyard_rect(fps[r], 0.5) for r in holes]}
     placed = {}
@@ -86,7 +93,9 @@ def place(job):
             occupied["F" if bottom else "B"].pop()
 
     def try_place(fp, tx, ty, rot, max_r=25.0, step=0.25, bottom=False, box=None, edge_ok=True,
-                  margin=0.25):
+                  margin=0.25, halo=0.0):
+        """Nearest free spot to (tx, ty). ``halo``: also keep this far (mm) from other
+        multi-pin parts' halos, leaving room around each IC for its passives and fanout."""
         occ = occupied["B" if bottom else "F"]
         put(fp, tx, ty, rot, bottom)
         r = 0.0
@@ -99,7 +108,12 @@ def place(job):
                 b = courtyard_rect(fp, margin)
                 if (inside(b) or not edge_ok) and (box is None or inside_box(b, box)) \
                         and not any(overlap(b, o) for o in occ):
+                    hb = courtyard_rect(fp, halo) if halo else None
+                    if hb and any(overlap(hb, o) for o in ic_halos):
+                        continue
                     claim(fp, b, bottom)
+                    if hb:
+                        ic_halos.append(hb)
                     return True
             r += step
         return False
@@ -117,6 +131,26 @@ def place(job):
         y = ey0 + y if "top" in edges else ey1 - (dh - y) if "bottom" in edges else ey0 + y * sy
         return x, y
 
+    def pad_mm(p):
+        return TOMM(p.GetPosition().x), TOMM(p.GetPosition().y)
+
+    def facing_rot(fp, side, bottom):
+        """The rotation that points fp's mating side at the ``side`` edge. The mating side is
+        where the body overhangs its pads: from the pads' centroid towards the courtyard's
+        centre (a BNC's barrel, a USB-C mouth)."""
+        want = {"left": (-1, 0), "right": (1, 0), "top": (0, -1), "bottom": (0, 1)}[side]
+        best = None
+        for rot in (0, 90, 180, 270):
+            put(fp, 0, 0, rot, bottom)
+            b = courtyard_rect(fp)
+            ps = [pad_mm(p) for p in fp.Pads()]
+            px, py = sum(x for x, _ in ps) / len(ps), sum(y for _, y in ps) / len(ps)
+            dx, dy = (b[0] + b[2]) / 2 - px, (b[1] + b[3]) / 2 - py
+            score = dx * want[0] + dy * want[1]
+            if best is None or score > best[0]:
+                best = (score, rot)
+        return best[1]
+
     # ---- 1. anchors
     anchor_overlaps = []
     for a in job.get("anchors", []):
@@ -131,6 +165,8 @@ def place(job):
             continue
         fp = parts[hits[0]]
         bottom = a.get("side", "F") == "B"
+        if a.get("facing") and "rot" not in a:
+            a = dict(a, rot=facing_rot(fp, a["facing"], bottom))
         x, y = anchor_xy(a)
         # An anchor that lands on an earlier one (on a compacted board) moves to the nearest
         # free spot, up to anchor_slack mm.
@@ -156,6 +192,9 @@ def place(job):
 
     # ---- 2. unanchored multi-pin parts: in their region, else shelf-packed
     gap = job.get("ic_gap", 6.0)
+    # Packed by connectivity alone, ICs ended up courtyard to courtyard: their decaps were
+    # pushed out (17 over 3 mm) and 20 connections didn't route (dual-ADC run 1 replay).
+    ic_halos.extend(courtyard_rect(fp, gap / 2) for fp in placed.values() if fp.GetPadCount() > 4)
     def region_of(fp):
         for g in job.get("regions", []):
             if (re.search(g.get("sheet", ""), fp.GetSheetname() or "")
@@ -168,31 +207,56 @@ def place(job):
                 return ex0 + fx0 * w, ey0 + fy0 * h, ex0 + fx1 * w, ey0 + fy1 * h
         return None
 
+    def signal(n):
+        return bool(n) and n not in rails and n not in ground and not n.startswith("unconnected")
+
+    net_parts = {}
+    for r_, ns_ in nets_of.items():
+        for n_ in ns_:
+            net_parts.setdefault(n_, set()).add(r_)
+
     def owner_pads(net):
         return [(r, p) for r, fp in placed.items() for p in fp.Pads() if p.GetNetname() == net]
 
-    def pad_mm(p):
-        return TOMM(p.GetPosition().x), TOMM(p.GetPosition().y)
-
-    def links(fp):
-        """[(pad, [placed pads on its net])] for fp's signal pads (rails and ground pull
-        everything towards the regulators, so they don't count)."""
+    def links(fp, hops=3):
+        """[(pad, [placed pads it connects to])] for fp's signal pads (rails and ground pull
+        everything towards the regulators, so they don't count). A connection through a chain
+        of up to ``hops`` unplaced 2-pin parts counts too, the nearest placed pads only: an
+        op-amp's input reaches its BNC only through the series resistor and attenuator."""
+        me = fp.GetReference()
         out = []
         for p in fp.Pads():
             n = p.GetNetname()
-            if n and n not in rails and n not in ground and not n.startswith("unconnected"):
-                q = [pad_mm(q) for _, q in owner_pads(n)]
+            if not signal(n):
+                continue
+            frontier, seen, q = {n}, {n}, []
+            for _ in range(hops + 1):
+                q = [(*pad_mm(x), r3) for m in frontier for r3, x in owner_pads(m) if r3 != me]
                 if q:
-                    out.append((p, q))
+                    break
+                nxt = set()
+                for m in frontier:
+                    for r2 in net_parts.get(m, ()):
+                        if r2 not in placed and r2 != me and parts[r2].GetPadCount() == 2:
+                            nxt |= {k for k in nets_of[r2] if k not in seen and signal(k)}
+                seen |= nxt
+                frontier = nxt
+                if not frontier:
+                    break
+            if q:
+                out.append((p, q))
         return out
 
     def place_in_region(fp, box):
         """At the centroid of fp's placed connections, clamped into box, in the rotation
         that makes those connections shortest."""
         ls = links(fp)
-        pts = [q for _, qs in ls for q in qs]
+        # A connector pulls harder, so the first IC on an input or interface sits by its jack
+        # (the rest of the chain then reaches back towards it).
+        pts = [(x, y, 3.0 if CONNECTOR.match(r_) else 1.0) for _, qs in ls for x, y, r_ in qs]
         if pts:
-            tx, ty = sum(x for x, _ in pts) / len(pts), sum(y for _, y in pts) / len(pts)
+            wsum = sum(w for _, _, w in pts)
+            tx, ty = sum(x * w for x, _, w in pts) / wsum, sum(y * w for _, y, w in pts) / wsum
         else:
             tx, ty = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
         best = None
@@ -203,32 +267,38 @@ def place(job):
             x = min(max(tx, box[0] + hw), box[2] - hw) - (b[0] + b[2]) / 2
             y = min(max(ty, box[1] + hh), box[3] - hh) - (b[1] + b[3]) / 2
             fp.SetPosition(pt(x, y))
-            cost = sum(min(math.dist(pad_mm(p), q) for q in qs) for p, qs in ls)
+            cost = sum(min(math.dist(pad_mm(p), q[:2]) for q in qs) for p, qs in ls)
             if best is None or cost < best[0] - 1e-6:
                 best = (cost, rot, x, y)
         _, rot, x, y = best
-        return try_place(fp, x, y, rot, max_r=40, box=box)
+        return try_place(fp, x, y, rot, max_r=40, box=box, halo=gap / 2)
 
     big = [r for r in parts if r not in placed and parts[r].GetPadCount() > 4]
-    # Parts with a region go where their connections pull them, most-connected first.
-    # (Shelf-packing them in sheet order left the dual-ADC front ends at the top of their
-    # regions, away from their BNCs, and the USB ESD part away from the connector.)
-    todo = [r for r in big if region_of(parts[r])]
+    board_box = (ex0 + keep, ey0 + keep, ex1 - keep, ey1 - keep)
+    # Multi-pin parts go where their connections pull them (inside their region, if they
+    # have one), most-connected first, so a signal chain grows out from its anchored ends.
+    # (Shelf-packing them in sheet order left the dual-ADC front ends at the top of the
+    # board, 85 mm from their BNCs, and the ADC's series-resistor packs in a far corner.)
+    todo = list(big)
     while todo:
-        r = max(todo, key=lambda r: (len(links(parts[r])), parts[r].GetPadCount(), r))
+        score = {r: len(links(parts[r])) for r in todo}
+        r = max(todo, key=lambda r: (score[r] > 0 or region_of(parts[r]) is not None, score[r],
+                                     parts[r].GetPadCount(), r))
+        if not score[r] and not region_of(parts[r]):
+            break  # nothing placed connects to the rest: shelf-pack them below
         todo.remove(r)
         fp = parts[r]
-        if place_in_region(fp, region_of(fp)):
+        box = region_of(fp) or board_box
+        if place_in_region(fp, box):
             placed[r] = fp
             continue
-        warnings.append(f"{r} ({fp.GetValue()}) doesn't fit its region")
-        b = region_of(fp)
-        if try_place(fp, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2, 0, max_r=40):
+        if box is not board_box:
+            warnings.append(f"{r} ({fp.GetValue()}) doesn't fit its region")
+        if try_place(fp, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2, 0, max_r=40):
             placed[r] = fp
 
-    # The others are shelf-packed in sheet order.
-    board_box = (ex0 + keep, ey0 + keep, ex1 - keep, ey1 - keep)
-    rest = [r for r in big if r not in placed and not region_of(parts[r])]
+    # Parts nothing placed connects to are shelf-packed in sheet order.
+    rest = [r for r in todo if r not in placed]
     rest.sort(key=lambda r: (parts[r].GetSheetname() or "", -parts[r].GetPadCount(), r))
     x, y, row_h = board_box[0] + gap, board_box[1] + gap, 0.0
     for r in rest:
@@ -405,6 +475,13 @@ def place(job):
         else:
             failed.append(ref)
 
+    paths = _connector_paths(parts, nets_of, net_parts, signal)
+    far_mm = job.get("connector_path_mm", 25.0)
+    for c in paths:
+        if c["mm"] > far_mm:
+            warnings.append(f"{c['conn']}.{c['pad']} ({c['net']}) reaches {c['to']} {c['mm']} mm away"
+                            + (f" through {', '.join(c['via'])}" if c["via"] else "")
+                            + ": anchor that part (or its connector) closer")
     board.Save(job["pcb"])
     bottom = sum(1 for fp in parts.values() if fp.IsFlipped())
     return {"anchored": len(job.get("anchors", [])) - sum(w.startswith("anchor") for w in warnings),
@@ -413,7 +490,49 @@ def place(job):
             "leftovers": sum(1 for w in warnings if "placed with no anchor or partner" in w),
             "stretch": _stretch(stretch, job.get("stretch_mm", 8.0)),
             "stretch_parts": stretch,  # ref -> [moved, reach, owner.pad] (work/ result only)
+            "connector_paths": sorted(paths, key=lambda c: -c["mm"])[:12],
             "warnings": warnings, "ok": not failed}
+
+
+def _connector_paths(parts, nets_of, net_parts, signal, hops=3):
+    """For each connector signal pad: the first IC (more than 3 pads) its net reaches,
+    directly or through up to ``hops`` 2-pin parts, and how far away it is (mm, pad to pad).
+    A long one is an unbuffered input or an interface line crossing the board."""
+    def mm(p):
+        return TOMM(p.GetPosition().x), TOMM(p.GetPosition().y)
+
+    out = []
+    for ref, fp in parts.items():
+        if not CONNECTOR.match(ref):
+            continue
+        for pad in fp.Pads():
+            n = pad.GetNetname()
+            if not signal(n):
+                continue
+            frontier, seen, via, hit = {n}, {n}, [], None
+            for _ in range(hops + 1):
+                ics = [(r2, q) for m in frontier for r2 in sorted(net_parts.get(m, ()))
+                       if r2 != ref and parts[r2].GetPadCount() > 3
+                       for q in parts[r2].Pads() if q.GetNetname() == m]
+                if ics:
+                    hit = min(ics, key=lambda t: math.dist(mm(pad), mm(t[1])))
+                    break
+                nxt = set()
+                for m in frontier:
+                    for r2 in sorted(net_parts.get(m, ())):
+                        if r2 != ref and parts[r2].GetPadCount() == 2:
+                            new = {k for k in nets_of[r2] if k not in seen and signal(k)}
+                            if new:
+                                via.append(r2)
+                            nxt |= new
+                seen |= nxt
+                frontier = nxt
+                if not frontier:
+                    break
+            if hit:
+                out.append({"conn": ref, "pad": pad.GetNumber(), "net": n, "to": hit[0],
+                            "mm": round(math.dist(mm(pad), mm(hit[1])), 1), "via": via[:4]})
+    return out
 
 
 def _stretch(st, far_mm):

@@ -13,6 +13,7 @@ Footprints come from the fp-lib-table C1 wrote (the libraries the design was bui
 from KiCad's stock library directory and [libraries] footprints.
 """
 
+import math
 import os
 from collections import Counter
 
@@ -50,7 +51,8 @@ def lib_paths(proj):
 def load_footprint(lib_id, libs):
     """Pads and F.Fab extent of ``lib:name``, or None if the file isn't found.
 
-    {"pads": [(number, x, y, area)], "fab": (w, h) or None}
+    {"pads": [(number, x, y, area)], "rects": [(number, x0, y0, x1, y1)] of copper pads,
+     "fab": (w, h) or None}
     """
     lib, _, name = lib_id.partition(":")
     path = os.path.join(libs.get(lib, ""), name + ".kicad_mod")
@@ -58,13 +60,20 @@ def load_footprint(lib_id, libs):
         return None
     with open(path) as f:
         root = sexp(f.read())
-    pads = []
+    pads, rects = [], []
     for p in _find(root, "pad"):
         if len(p) < 3 or p[2] == "np_thru_hole" or not p[1]:
             continue
         at, size = _find(p, "at")[0], _find(p, "size")
         w, h = (float(size[0][1]), float(size[0][2])) if size else (0.0, 0.0)
-        pads.append((p[1], float(at[1]), float(at[2]), w * h))
+        x, y = float(at[1]), float(at[2])
+        pads.append((p[1], x, y, w * h))
+        layers = " ".join(str(v) for lay in _find(p, "layers") for v in lay[1:])
+        if "Cu" in layers:
+            a = math.radians(float(at[3])) if len(at) > 3 else 0.0
+            hw = (abs(w * math.cos(a)) + abs(h * math.sin(a))) / 2
+            hh = (abs(w * math.sin(a)) + abs(h * math.cos(a))) / 2
+            rects.append((p[1], x - hw, y - hh, x + hw, y + hh))
     xs, ys = [], []
     for kind in ("fp_line", "fp_rect", "fp_poly"):
         for g in _find(root, kind):
@@ -75,7 +84,23 @@ def load_footprint(lib_id, libs):
             xs += [float(n[1]) for n in pts]
             ys += [float(n[2]) for n in pts]
     fab = (round(max(xs) - min(xs), 3), round(max(ys) - min(ys), 3)) if xs else None
-    return {"pads": pads, "fab": fab}
+    return {"pads": pads, "rects": rects, "fab": fab}
+
+
+def pad_gap(fp):
+    """Smallest copper gap (mm) between two differently numbered pads of a footprint
+    (bounding boxes). Pads that touch or overlap (a split exposed pad, USB-C's paired
+    GND/VBUS pads) are deliberate and don't count."""
+    best = math.inf
+    rects = fp.get("rects", [])
+    for i, (na, ax0, ay0, ax1, ay1) in enumerate(rects):
+        for nb, bx0, by0, bx1, by1 in rects[i + 1:]:
+            if na == nb:
+                continue
+            gap = math.hypot(max(0, bx0 - ax1, ax0 - bx1), max(0, by0 - ay1, ay0 - by1))
+            if gap > 1e-6:
+                best = min(best, gap)
+    return best
 
 
 def exposed(pads):
@@ -150,7 +175,9 @@ def check_package(ref, lib_id, fp, ex):
                     "detail": f"{ref} {lib_id}: datasheet pins {sorted(pin_nums - nums, key=_nat)} have no pad"})
     body = pkg.get("body_mm") or {}
     if fp["fab"] and body.get("length") and body.get("width"):
-        have_b, want_b = sorted(fp["fab"], reverse=True), (body["length"], body["width"])
+        # datasheets differ on which side is "length": compare long side with long side
+        have_b = sorted(fp["fab"], reverse=True)
+        want_b = sorted((body["length"], body["width"]), reverse=True)
         if any(abs(h - w) > max(BODY_TOL[0], BODY_TOL[1] * w) for h, w in zip(have_b, want_b)):
             out.append({"severity": "warning", "check": "body",
                         "detail": f"{ref} {lib_id}: F.Fab outline {have_b[0]:g} x {have_b[1]:g} mm, "

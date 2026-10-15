@@ -54,3 +54,12 @@ def test_not_checked_and_trust():
     assert "not in the netlist" in budget.check(_nl(LDO), dict(C, net="X"), Store())["why"]
     r = budget.check(_nl(LDO), C, Store(LDO1=_reg(0.1, quality=40)))
     assert r["status"] == "FAIL" and r["tag"] == "SOFT" and r["findings"][0]["severity"] == "warning"
+
+
+def test_load_switch_rated_by_recommended_iout():
+    sw = {"extraction": {"quality_score": 80},
+          "base": {"pinout": [{"numbers": ["5"], "name": "OUT", "type": "power_out"}],
+                   "recommended_operating": {"IOUT": [{"min": 0, "max": 1.2, "unit": "A"},
+                                                      {"min": 0, "max": 1.5, "unit": "A"}]}}}
+    r = budget.check(_nl(LDO), C, Store(LDO1=sw))
+    assert r["status"] == "PASS" and "rated 1.2 A (recommended IOUT)" in r["findings"][0]["detail"]

@@ -39,8 +39,12 @@ def register(step, impl):
 class Context:
     """What a step needs: input files and where outputs go. ``outputs`` fills as steps run."""
 
-    def __init__(self, sch, pcb, outdir, gerber_dir=None, rail_currents=None, drc_report=None):
+    def __init__(self, sch, pcb, outdir, gerber_dir=None, rail_currents=None, drc_report=None,
+                 fab_limits=None):
         self.sch, self.pcb, self.outdir, self.gerber_dir = sch, pcb, outdir, gerber_dir
+        # {"name": "jlcpcb/multilayer", min_track, min_clearance, min_drill, annular_ring}:
+        # the fab tier the board was set up for; DFM findings are re-judged against it.
+        self.fab_limits = fab_limits
         self.drc_report = drc_report  # kicad-cli DRC JSON: the authority on unrouted connections
         self.rail_currents = dict(rail_currents or {})  # {KiCad net: A}
         self.outputs = {}
@@ -145,6 +149,36 @@ def _gerbers(ctx):
     return ctx.out("gerbers")
 
 
+# kicad-happy DFM-001 parameter -> the fab-tier minimum it is held to
+DFM_LIMITS = {"track_spacing": "min_clearance", "track_width": "min_track", "via_drill": "min_drill",
+              "pad_drill": "min_drill", "annular_ring": "annular_ring"}
+
+
+def dfm_for_fab(pcb, limits):
+    """Re-judge kicad-happy's DFM tier against the board's own fab tier. Its 'standard' limits
+    are JLCPCB's 1-2 layer ones (0.127 mm spacing), so a 4-layer board at JLCPCB's 0.09 mm
+    multilayer minimum was reported as needing the 'advanced' process. Findings within the
+    tier are dropped; the tier becomes 'standard' (meaning: this fab tier) when none are left.
+    Returns the parameters dropped."""
+    if not limits:
+        return []
+    dropped, keep = [], []
+    for f in pcb.get("findings", []):
+        par = f.get("parameter") if f.get("rule_id") == "DFM-001" else None
+        lim = limits.get(DFM_LIMITS.get(par, ""))
+        if lim is not None and isinstance(f.get("actual_mm"), (int, float)) and f["actual_mm"] >= lim - 1e-6:
+            dropped.append(par)
+            continue
+        keep.append(f)
+    pcb["findings"] = keep
+    left = [f for f in keep if f.get("rule_id") == "DFM-001" and f.get("parameter") in DFM_LIMITS]
+    dfm = pcb.setdefault("dfm_summary", {})
+    if dropped and not left:
+        dfm["dfm_tier"] = "standard"
+    dfm["judged_against"] = limits.get("name")
+    return dropped
+
+
 def routing_from_drc(pcb, drc_report):
     """Replace kicad-happy's routing status with KiCad's: kicad-happy counts a net as routed
     once it has any copper, so a partly routed net passes. Nets come from the DRC report's
@@ -163,6 +197,7 @@ def routing_from_drc(pcb, drc_report):
 def _gate(ctx):
     # The gate compares schematic parts with *all* PCB footprints; board-only ones
     # (fiducials, mounting holes) have no schematic symbol, so they're left out of the count.
+    # Its DFM tier is re-judged against the board's fab tier (dfm_for_fab).
     with open(ctx.outputs["pcb"]) as f:
         pcb = json.load(f)
     fps = pcb.get("footprints", [])
@@ -170,6 +205,7 @@ def _gate(ctx):
     if ctx.drc_report and os.path.exists(ctx.drc_report):
         with open(ctx.drc_report) as f:
             routing_from_drc(pcb, json.load(f))
+    dfm_for_fab(pcb, ctx.fab_limits)
     pcb_gate = ctx.out("pcb_for_gate")
     with open(pcb_gate, "w") as f:
         json.dump(pcb, f)

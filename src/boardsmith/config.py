@@ -58,12 +58,18 @@ DEFAULTS = {
         "edge_clearance": 0.3,
     },
     "placement": {
-        "anchor": [],  # [{ref|value, sheet, at=[x,y], rot, side}]
+        # [{ref|value, sheet, at=[x,y], rot, side, edge, facing}]: ``edge`` keeps the offset
+        # from that edge when the board shrinks; ``facing`` (left|right|top|bottom) picks the
+        # rotation that points a connector's mating side at that edge (instead of ``rot``).
+        "anchor": [],
         # Floorplan: [{sheet, value (regexes), rect = [x0, y0, x1, y1] mm from the top-left
         # corner | area = the same as fractions of the board}]. Unanchored ICs are packed
         # into the first region that matches; their passives follow them.
         "region": [],
         "ic_gap": 6.0,  # mm between packed ICs
+        # Warn when a connector's signal reaches its first IC (through up to 3 passives)
+        # from further than this (mm): an unbuffered input or a line crossing the board.
+        "connector_path_mm": 25.0,
         # Compaction: shrink the board (and the anchor/region positions with it) in steps of
         # ``step`` down to ``min_scale`` while every part fits, nothing overlaps and at most
         # ``max_over`` congestion cells exceed ``max_util``; then route, and step back up

@@ -328,11 +328,11 @@ def identify(pdf, mpn, pages=5):
     return any(key[:n] in text for n in range(len(key), need - 1, -1))
 
 
-def fetch(mpn, url, dest, timeout=90, search=True):
+def fetch(mpn, url, dest, timeout=90, search=True, keep=False):
     """Download a PDF with kicad-happy's LCSC fetcher: the URL first, then (``search``) an
-    LCSC search. A PDF that doesn't name the part is discarded: symbol URLs often cover a
-    sibling part, and LCSC's search is fuzzy. Returns (source url or "lcsc", None) or
-    (None, why)."""
+    LCSC search. A PDF is kept only if its text names the part: symbol URLs often cover a
+    sibling part, LCSC's search is fuzzy, and an image-only PDF can't be checked. Returns
+    (source url or "lcsc", None) or (None, why). ``keep`` keeps an unconfirmed PDF."""
     tries = ([("url", [url])] if url else []) + ([("lcsc", ["--search", mpn])] if search else [])
     why = []
     for name, args in tries:
@@ -342,10 +342,15 @@ def fetch(mpn, url, dest, timeout=90, search=True):
         except subprocess.TimeoutExpired:
             why.append(f"{name}: timeout")
             continue
-        if r.returncode == 0 and is_pdf(dest) and identify(dest, mpn) is not False:
+        ok = r.returncode == 0 and is_pdf(dest)
+        who = identify(dest, mpn) if ok else None
+        if who or (ok and keep):  # keep: the caller vouches for it (add --force)
             return (url if name == "url" else "lcsc"), None
-        if r.returncode == 0 and is_pdf(dest):
-            why.append(f"{name}: got a PDF that doesn't name {mpn}")
+        if ok:
+            # A download has to prove it is the part: image-only PDFs (no text) let two
+            # wrong-part files in (an LCSC crystal sheet filed as an ESD diode).
+            why.append(f"{name}: got a PDF that " + ("doesn't name " + mpn if who is False else
+                                                      "has no text to confirm it is " + mpn))
         else:
             why.append(f"{name}: exit {r.returncode} {(r.stderr or r.stdout).strip()[-120:]}")
         if os.path.exists(dest):
@@ -396,20 +401,26 @@ def sync(proj, fresh=False, download=True, log=print):
 
 def add(proj, mpn, src, force=False):
     """Put one PDF (a file or URL) into the project's datasheets for ``mpn``, after checking
-    it is a PDF that names the part (``force`` skips the name check). Returns its path."""
+    it is a PDF whose text names the part (``force`` skips the name check, for a scanned
+    datasheet checked by eye). Returns its path."""
     project, _ = stores(proj)
     os.makedirs(project.root, exist_ok=True)
     url = src if re.match(r"https?://", src) else None
     if url:
         tmp = os.path.join(project.root, sanitize(mpn) + ".pdf.part")
-        origin, why = fetch(mpn, url, tmp, search=False)
-        if not origin and not (force and is_pdf(tmp)):
+        origin, why = fetch(mpn, url, tmp, search=False, keep=force)
+        if not origin:
             raise ValueError(f"{mpn}: {why}")
         src = tmp
     elif not is_pdf(src):
         raise ValueError(f"{src} is not a PDF")
-    elif identify(src, mpn) is False and not force:
-        raise ValueError(f"{src} doesn't name {mpn} in its first pages (--force to add it anyway)")
+    elif not force:
+        who = identify(src, mpn)
+        if who is False:
+            raise ValueError(f"{src} doesn't name {mpn} in its first pages (--force to add it anyway)")
+        if who is None:
+            raise ValueError(f"{src} has no text to confirm it is {mpn} (scanned?); check it by eye, "
+                             "then add it with --force")
     path = project.add_pdf(src, mpn, url, name=sanitize(mpn) + ".pdf")
     if url and os.path.exists(src):
         os.remove(src)

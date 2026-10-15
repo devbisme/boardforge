@@ -21,6 +21,11 @@ The license is in `LICENSE-skidl-skills`. Source commit: `82cf010f8a7d42ed2afee6
 | `scripts/session-start.sh`, `stop-check.py` | `scripts/` | Rewritten for boardsmith (`boardsmith status`, C1's ERC result) |
 | `hooks/hooks.json` | same | Unchanged |
 
+## New here (not from skidl-skills)
+
+`rules/physical.md` (phase 7: floorplan, placement checks, reading the physical pipeline's
+results) and `scripts/kicadlibs.py`.
+
 ## Moved into boardsmith itself
 
 - `validate-bom.py` → the `BOM` result of `boardsmith review`

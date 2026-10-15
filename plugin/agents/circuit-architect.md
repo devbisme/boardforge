@@ -83,7 +83,11 @@ nobody downstream can quietly break.
   `[p, n]` pair for a differential output), gain in dB at `at_hz`, optionally relative to
   `ref_hz`; `min_db` and/or `max_db`. Write one for the in-band gain, one for flatness at the
   highest in-band frequency (`ref_hz` = a mid-band frequency), and one for attenuation at
-  the alias edge or whatever stopband the spec sets, per signal path.
+  the alias edge or whatever stopband the spec sets, per signal path. For a sampled path the
+  alias edge is **fs/2** (content between fs/2 and fs folds into the band), and the depth
+  follows from the resolution (≈ 6.02·N dB for N bits) unless the requirements accept less
+  with a reason. If the requirements handoff states the edge at fs, correct it and say so in
+  `## Decisions`.
 - **`rail_current`** — `net` and `max_a`: your power budget's total load on that rail. The
   gate compares it with the rated output current of the regulator that makes the rail.
   Write one per regulated rail.

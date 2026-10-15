@@ -270,16 +270,24 @@ phase 6 passes its gate (`rules/design-workflow.md` § Pipeline).
 
 ## Phase 7 — physical
 
-After the user approves the phase 6 result:
+After the user approves the phase 6 result. Settings, and what each summary line means:
+`rules/physical.md` — read it first.
 
-1. Run `boardsmith run --from c2` **in the background** (`run_in_background: true`); routing
-   alone can take several minutes. Don't poll — its exit re-invokes you.
-2. Read `boardsmith status` and, only for a stage that warned or failed, the report it names
+1. **Floorplan.** Write the board size, layers, planes, pours and `[[placement.anchor]]`
+   entries into `boardsmith.toml` from the architecture's signal flow: every connector on
+   its edge with `facing`, the keystone ICs in signal-flow order, and each input's first
+   amplifier beside its connector.
+2. **Place and look.** Run `boardsmith run --from c2 --to c3` (seconds). Fix anything C3
+   warns about (unplaced parts, a connector path over 25 mm, congestion), and render the
+   placement once to check it by eye. Repeat until C3 is clean.
+3. **Route.** Run `boardsmith run --from c4` **in the background** (`run_in_background:
+   true`); routing takes 10–45 minutes. Don't poll — its exit re-invokes you.
+4. Read `boardsmith status` and, only for a stage that warned or failed, the report it names
    under `build/reports/`. Record `physical_status` in `design_state.json`.
-3. Report: board size and layers, routed or not, DRC errors, release-gate verdict, and where
-   the fab outputs are (`build/fab/`). A problem here is a placement or routing setting
-   (`boardsmith.toml` `[board]`, `[placement]`, `[routing]`) or a design defect the gates
-   missed: describe it and ask the user how to proceed; don't edit circuit code in phase 7.
+5. Report: board size and layers, routed or not, DRC errors, release-gate verdict,
+   `lines_without_lcsc`, and where the fab outputs are (`build/fab/`). A problem here is a
+   `boardsmith.toml` setting or a design defect the gates missed: describe it and ask the
+   user how to proceed; don't edit circuit code in phase 7.
 
 ## design_state.json
 

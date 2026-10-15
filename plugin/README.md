@@ -30,6 +30,6 @@ resumes.
 | 4 datasheets → extractions | `datasheet-librarian` | `boardsmith datasheets check` |
 | 5 SKiDL code | `skidl-coder` / block coders + assembler | `boardsmith sch` (SKiDL + KiCad ERC, parity) |
 | 6 review | `erc-reviewer` | `boardsmith review` (SPICE paths, datasheet, package, BOM, budgets) |
-| 7 board | the driver | `boardsmith run --from c2` (placement, routing, DRC, fab) |
+| 7 board | the driver: floorplan, then place and route (`rules/physical.md`) | C3's placement warnings, DRC, release gate |
 
 Other skills: `/design-review`, `/find-part`. The rules every agent follows are in `rules/`.
