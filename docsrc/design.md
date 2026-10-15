@@ -911,6 +911,46 @@ constraints: +1V2 0.15 A on the AP2112 (0.6 A guaranteed) passes; −3V3A 0.3 A 
 regulator). Not handled yet (visible debt): upstream propagation, i.e. a regulator's input
 current as load on the rail that feeds it.
 
+**Agents ported (2026-10-14).** `plugin/`: skidl-skills' 7 agents, 4 skills, rules and hooks
+(MIT, Nick Kraakman, commit `82cf010`; `plugin/ATTRIBUTION.md` lists every change) as a
+Claude Code plugin named `boardsmith`, plus a marketplace manifest at the repo root. Decided
+with the user:
+- The librarian writes **both** the kicad-happy extraction (what the gates read) and
+  `<MPN>_SUMMARY.md` (what coders read). The summary's tables are pasted from
+  `boardsmith datasheets show`, generated from the extraction, so the two can't disagree;
+  only the load-bearing facts and notes are hand-written. It writes one extraction per part
+  itself, following kicad-happy's prompts, not the scout → plan → per-task-subagent recipe:
+  a sub-agent can't spawn sub-agents, and one-pass extraction worked for the six by hand.
+- After coding, phase 6 is the reviewer running `boardsmith sch` and `boardsmith review`,
+  doing only the checklist items no gate covers, and routing each failure to its owner;
+  phase 7 runs `boardsmith run --from c2` from the driver.
+- Checks moved into the CLI: `validate-bom.py` became review's `BOM` result
+  (`review/bom_check.py`, its helpers copied unchanged); `fetch-datasheet.py`/`part-cache.py`
+  became `datasheets sync|add|publish`. Lookup tools stay plugin scripts (`stock-check`,
+  `find-symbol`, `pdf-table`, `generate-footprint`, `validate-footprints`), the last two
+  adapted to KiCad 10's `.kicad_symdir` libraries and boardsmith's library locations.
+- Hooks ported: the Bash guard protects `datasheets/ circuits/ sourcing/ symbols/
+  footprints/` (not `build/`); the stop hook warns when circuit code changed since C1's
+  last clean run.
+
+boardsmith changes the port needed:
+- `[design] file` may be a package directory (`circuits/<name>/`), run as a module; the
+  project and its `symbols/` are on SKiDL's library path; `[libraries.footprints]` paths
+  are project-relative.
+- `datasheets add` (one PDF by path or URL, identity-checked), `check` (validate, fill
+  derived fields, score), `show` (markdown), `paths`; `sync`/`status` read the sourced BOM
+  when there's no netlist yet, so the librarian can run before any code exists.
+- `PKG:pins` also warns about numbered pads with no symbol pin (a floating exposed pad).
+- `constraints.json` is written by the architect (phase 2), since entries need net names.
+- The driver's state file is `design_state.json`; `build/pipeline_state.json` stays
+  boardsmith's.
+
+Tested: plugin and marketplace manifests validate (`claude plugin validate`); Claude Code
+loads 7 agents, 4 skills, 4 hooks (~1.3 k tokens always-on). Each hook script, the two
+adapted lookup scripts, every new CLI action and the BOM gate were run on the dual-ADC
+project or a small modular test design. **Not yet tested:** a full `/new-circuit` run with
+the agents — that is the step 6 rerun.
+
 ## 5. Expected gains (estimates, not measurements)
 
 | Criterion | Baseline in runs | Expected | Why |

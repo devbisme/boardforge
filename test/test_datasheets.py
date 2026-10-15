@@ -130,3 +130,46 @@ def test_amp_facts_and_expose(tmp_path):
     assert ds.amp_facts(project, "NOPE") is None
     assert ds.expose(proj) is None
     assert os.path.realpath(tmp_path / "build" / "datasheets") == os.path.realpath(project.root)
+
+
+def test_add_check_show(tmp_path):
+    pytest.importorskip("jsonschema")
+    proj = _project(tmp_path, [("U1", "LM358")])
+    project, _ = ds.stores(proj)
+    other = _pdf(str(tmp_path / "other.pdf"), "TLV62569 buck converter " * 20)
+    with pytest.raises(ValueError, match="doesn't name"):
+        ds.add(proj, "LM358", other)
+    with pytest.raises(ValueError, match="not a PDF"):
+        ds.add(proj, "LM358", str(tmp_path / "d.py"))
+    good = _pdf(str(tmp_path / "lm.pdf"), "LM358 dual operational amplifier " * 20)
+    assert os.path.basename(ds.add(proj, "LM358", good)) == "LM358.pdf"
+    assert project.pdf("LM358")
+    # an agent-written extraction: no derived fields yet
+    with open(EXAMPLE) as f:
+        ex = json.load(f)
+    del ex["extraction"], ex["schema_version"]
+    ex["source"].update(mpn="LM358", sha256=None, local_path=None)
+    os.makedirs(project.extracted, exist_ok=True)
+    with open(project.extraction_file("LM358"), "w") as f:
+        json.dump(ex, f)
+    (row,) = ds.check(proj, ["LM358"])
+    assert row["problems"] == [] and row["quality"] > 60
+    done = project.extraction("LM358")
+    assert done["source"]["sha256"] == ds.sha256(project.pdf("LM358")) and project.stale("LM358") is None
+    assert ds.check(proj, ["NOPE"])[0]["problems"]
+    text = ds.summary(done)
+    assert text.startswith("# LM358") and "## Pinout" in text and "| Pin | Name |" in text
+
+
+def test_parts_from_bom_before_code(tmp_path):
+    proj = _project(tmp_path, [])
+    os.remove(tmp_path / "build" / "netlist.json")
+    os.makedirs(tmp_path / "sourcing")
+    (tmp_path / "sourcing" / "sourced_bom.csv").write_text(
+        'refdes,mpn,value\n"U1,U2",OPA810IDR,OPA810\nR1-R3,RC0603,10k\nU3,,X\n')
+    parts = ds.project_parts(proj)
+    assert parts["OPA810IDR"]["refs"] == ["U1", "U2"] and parts["OPA810IDR"]["wanted"]
+    assert not parts["RC0603"]["wanted"] and len(parts["RC0603"]["refs"]) == 3
+    os.remove(tmp_path / "sourcing" / "sourced_bom.csv")
+    with pytest.raises(FileNotFoundError, match="sourced BOM"):
+        ds.project_parts(proj)

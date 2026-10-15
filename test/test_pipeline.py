@@ -127,3 +127,38 @@ def test_rerun_one_stage(tiny):
     (res,) = pipe.run(("c4",))
     assert res["summary"]["unrouted"] == 0
     assert res["summary"]["finish"]["pours_added"]  # pours added again: fresh board
+
+
+def test_package_design_c1(tmp_path):
+    """A modular design (circuits/<name>/ with __main__.py and relative imports) runs as a
+    module, and the MPN field reaches the netlist (the plugin's coding layout)."""
+    from boardsmith.physical import Pipeline
+
+    pkg = tmp_path / "circuits" / "tiny_mod"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "ldo.py").write_text(
+        "from skidl import *\n\n@SubCircuit\ndef ldo(vin, vout, gnd):\n"
+        "    u = Part('Regulator_Linear', 'AP2112K-3.3', ref='U1', footprint='Package_TO_SOT_SMD:SOT-23-5')\n"
+        "    u.fields['MPN'] = 'AP2112K-3.3TRG1'\n"
+        "    c = Part('Device', 'C', ref='C1', value='1uF', footprint='Capacitor_SMD:C_0603_1608Metric')\n"
+        "    u['VIN', 'EN'] += vin\n    u['VOUT'] += vout\n    u['GND'] += gnd\n    u['NC'] += NC\n"
+        "    vout & c & gnd\n")
+    (pkg / "__main__.py").write_text(
+        "from skidl import *\nfrom .ldo import ldo\n\n"
+        "VIN = Net('+5V'); VIN.drive = POWER\nV33 = Net('+3V3')\nGND = Net('GND'); GND.drive = POWER\n"
+        "ldo(vin=VIN, vout=V33, gnd=GND, tag='ldo')\n"
+        "j = Part('Connector_Generic', 'Conn_01x03', ref='J1', "
+        "footprint='Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical')\n"
+        "j[1, 2, 3] += VIN, V33, GND\n"
+        "for n in (VIN, GND):\n    Part('power', 'PWR_FLAG')[1] += n\n"
+        "if __name__ == '__main__':\n    raise SystemExit('boardsmith must not run this')\n")
+    (tmp_path / "boardsmith.toml").write_text('[design]\nfile = "circuits/tiny_mod"\n')
+    pipe = Pipeline(Project.load(str(tmp_path)))
+    (res,) = pipe.run(("c1",))
+    assert res["status"] in ("done", "warn"), res
+    s = res["summary"]
+    assert s["parity"]["ok"] and s["skidl_erc"]["errors"] == 0 and s["erc"]["errors"] == 0
+    with open(os.path.join(pipe.p.out, "netlist.json")) as f:
+        comps = {c["ref"]: c for c in json.load(f)["components"]}
+    assert comps["U1"]["fields"]["MPN"] == "AP2112K-3.3TRG1"

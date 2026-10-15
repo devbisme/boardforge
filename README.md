@@ -5,8 +5,9 @@ architectures, then turn the selected one into a routed, manufacturable board. S
 the source of truth; runs headless (KiCad only for viewing/editing results).
 
 **Status:** the physical pipeline (C1–C6: SKiDL → schematic → board → placement → routing →
-checks → fab outputs) works. Explore and detail stages are not started. Design:
-[`docsrc/design.md`](docsrc/design.md).
+checks → fab outputs) and the review gate (B4) work. The detail stage's agents are a Claude
+Code plugin ([`plugin/`](plugin/README.md)), not yet run end to end. The explore stage is not
+started. Design: [`docsrc/design.md`](docsrc/design.md).
 
 ## Install (development)
 ```bash
@@ -27,7 +28,7 @@ boardsmith run --from c4       # rerun from routing
 boardsmith route               # one stage: sch | board | place | route | check | fab
 boardsmith status
 boardsmith review              # B4: constraints.json against the design (after C1)
-boardsmith datasheets sync     # part-fact cache: datasheet PDFs and extractions (after C1)
+boardsmith datasheets sync     # part-fact cache: datasheet PDFs and extractions
 ```
 C3 also reports a routability estimate (`reports/congestion.json`: routing demand per 2.5 mm
 cell, ratsnest crossings) and, with compaction, the sizes it tried (`reports/compaction.json`). Each stage prints a short summary; details go to `build/reports/`, and
@@ -44,7 +45,10 @@ cell, ratsnest crossings) and, with compaction, the sizes it tried (`reports/com
   `net.netclasses = power` (not `net.netclass`, which does nothing). Keys are KiCad's
   `.kicad_pro` names; in SKiDL the larger `priority` wins.
 - Don't set `lib_search_paths`; boardsmith points SKiDL at KiCad 10's libraries.
-- Expose a function that builds the circuit and name it in `[design] top`.
+- Expose a function that builds the circuit and name it in `[design] top`, or build it at
+  import time. `[design] file` may also be a package directory (`circuits/<name>/` with
+  `__main__.py`); it runs as a module, so relative imports work. The project directory and
+  its `symbols/` are on SKiDL's library path.
 
 ### boardsmith.toml
 See `src/boardsmith/config.py` for every key and its default. The main ones:
@@ -126,8 +130,11 @@ check.
 `DS:<MPN>`: the voltage across its supply pins against the absolute maximum (error) and
 recommended range (warning), and its datasheet power pins connected. `DS:coverage` lists the
 parts without an extraction. `PKG:pins` checks that every symbol pin on a net has a footprint
-pad, and `PKG:<MPN>` compares the footprint with the datasheet package: pad count, pitch,
-thermal pad, pin numbers and body size.
+pad (and every numbered pad has a pin), and `PKG:<MPN>` compares the footprint with the
+datasheet package: pad count, pitch, thermal pad, pin numbers and body size. `BOM` diffs the
+sourced BOM (`[review] bom`, default `sourcing/sourced_bom.csv`) against the design: MPN,
+value (numerically), footprint, symbol, and the `package` column against the footprint's
+body variant.
 
 ### Part-fact cache
 Datasheet PDFs and their structured extractions, in kicad-happy's layout
@@ -138,13 +145,19 @@ crystals by default (`prefixes`).
 ```bash
 boardsmith datasheets status   # per part: PDF, extraction, quality, staleness, in the cache
 boardsmith datasheets sync     # copy from the shared cache, then find missing PDFs
+boardsmith datasheets add MPN FILE_OR_URL   # one PDF, after checking it names the part
+boardsmith datasheets check MPN...  # validate extractions, fill derived fields, score
+boardsmith datasheets show MPN...   # markdown summary of extractions
+boardsmith datasheets paths    # kicad-happy's extraction prompts, schemas, examples
 boardsmith datasheets publish  # copy the project's extractions to the shared cache
 ```
+Before there is a netlist, the parts come from the sourced BOM CSV.
 `sync` looks for a missing PDF in the `search` directories (a file named after the part,
 `OPA810.pdf` for `OPA810IDR`), then downloads it from the symbol's datasheet URL, then
 LCSC. A download whose text doesn't name the part is discarded (needs `pdftotext`). `--fresh`
-skips the shared cache, `--offline` the downloads. Extraction itself is LLM work (kicad-happy's
-extraction pipeline, `skills/datasheets/references/extraction-pipeline.md`); `publish` takes
+skips the shared cache, `--offline` the downloads. Extraction itself is LLM work: an agent
+writes `extracted/<MPN>.json` following kicad-happy's prompts and schemas (`paths`), then
+`check` validates it and fills in the PDF hash, page count and quality score. `publish` takes
 only extractions that match their PDF and pass kicad-happy's schema (needs `jsonschema`), and
 keeps a shared entry unless the project's is newer and scores no lower (`--force`).
 `review` takes op-amp GBW and slew rate from the extractions.
@@ -162,8 +175,9 @@ src/boardsmith/         package
   routers/              router interface: Freerouting (Specctra), A*
   fabs/<fab>/           fab adapters: profile.toml + adapter
   analysis/             analysis-step registry (kicad-happy analyzers by default)
-  review/               B4 gate: constraints.json, SPICE path testbenches, datasheet and package checks
-  datasheets.py         part-fact cache: status, sync, publish
+  review/               B4 gate: constraints.json, SPICE path testbenches, datasheet, package and BOM checks
+  datasheets.py         part-fact cache: status, sync, add, check, show, publish
+plugin/                 Claude Code plugin: the detail-stage agents and skills (from skidl-skills)
   vendor/kicad_happy/   vendored kicad-happy (MIT)
 test/                   pytest; test/examples/ has the tiny and dual-ADC projects
 docsrc/                 documentation source (design doc)
@@ -173,4 +187,5 @@ end to end (about a minute).
 
 ## Third-party code
 `src/boardsmith/vendor/` contains code from other projects, each under its own license.
-See [`src/boardsmith/vendor/README.md`](src/boardsmith/vendor/README.md).
+See [`src/boardsmith/vendor/README.md`](src/boardsmith/vendor/README.md). The plugin is
+adapted from skidl-skills (MIT): [`plugin/ATTRIBUTION.md`](plugin/ATTRIBUTION.md).

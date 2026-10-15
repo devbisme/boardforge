@@ -83,12 +83,16 @@ def test_gate_results(tmp_path):
     nl = {"components": [
         comp("U1", "REG1", "L:S5", {"1": "VIN", "2": "GND", "5": "OUT"}),
         comp("U2", "OTHER", "L:S5", {"1": "A", "6": "B", "7": "__NOCONNECT"}),
+        comp("U4", "OTHER", "L:S5", {"1": "A", "2": "B", "3": "C", "4": "D"}),  # pad 5 has no pin
         comp("U3", "OTHER", "L:missing", {"1": "A"}),
         comp("TP1", "", "", {"1": "A"})]}
     res = {r["id"]: r for r in pc.check(nl, Store(), libs)}
     pins = res["PKG:pins"]
     assert pins["status"] == "FAIL" and pins["tag"] == "HARD" and pins["refs"] == ["U2"]
-    assert _sev(pins["findings"]) == [("error", "pins"), ("warning", "pins")]
-    assert "['6']" in pins["findings"][0]["detail"] and pins["why"] == "1 of 2 footprints found"
+    # pads with no symbol pin: U1 (3, 4), U2 (2-5), U4 (5)
+    assert _sev(pins["findings"]) == [("error", "pins")] + [("warning", "pads")] * 3 + [("warning", "pins")]
+    assert any("U4" in f["detail"] and "pads ['5']" in f["detail"] for f in pins["findings"])
+    err = next(f for f in pins["findings"] if f["severity"] == "error")
+    assert "['6']" in err["detail"] and pins["why"] == "1 of 2 footprints found"
     assert res["PKG:REG1"]["status"] == "PASS" and "PKG:OTHER" not in res
     assert pc.check(nl, Store(), {})[0]["status"] == "NOT CHECKED"

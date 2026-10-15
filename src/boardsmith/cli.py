@@ -3,7 +3,8 @@
     boardsmith run [-C DIR] [--from c3] [--to c6]   physical pipeline C1-C6 (or a range)
     boardsmith sch|board|place|route|check|fab       one stage (C1 ... C6)
     boardsmith review                                B4 gate: constraints.json against the design
-    boardsmith datasheets status|sync|publish        part-fact cache (datasheet PDFs, extractions)
+    boardsmith datasheets status|sync|add|check|show|publish|paths
+                                                     part-fact cache (datasheet PDFs, extractions)
     boardsmith status                                stage results from pipeline_state.json
     boardsmith doctor                                check KiCad, Freerouting, config
 
@@ -74,6 +75,8 @@ def cmd_review(args):
 
 
 def cmd_datasheets(args):
+    import os
+
     from boardsmith import datasheets as ds
 
     proj = Project.load(args.dir)
@@ -92,6 +95,37 @@ def cmd_datasheets(args):
             todo = sum(r["pdf"] and (not r["extracted"] or bool(r["stale"])) for r in shown)
             print(f"{len(shown)} parts ({len(rows) - len(shown)} passives etc. hidden; --all shows them): "
                   f"{no_pdf} without a PDF, {todo} to extract")
+            return 0
+        if args.action == "paths":
+            project, shared = ds.stores(proj)
+            print(f"project: {project.root}\nshared cache: {shared.root if shared else '(none)'}\n"
+                  f"prompts: {os.path.join(ds.SKILL, 'prompts')}\nschemas: {ds.SCHEMAS}\n"
+                  f"references: {os.path.join(ds.SKILL, 'references')}\n"
+                  f"examples: {os.path.join(ds.SKILL, 'examples')}")
+            return 0
+        if args.action in ("add", "check", "show") and not args.mpn:
+            raise ValueError(f"datasheets {args.action} needs MPNs")
+        if args.action == "add":
+            if len(args.mpn) != 2:
+                raise ValueError("datasheets add MPN FILE_OR_URL")
+            print(f"  added {ds.add(proj, args.mpn[0], args.mpn[1], force=args.force)}")
+            return 0
+        if args.action == "check":
+            bad = 0
+            for r in ds.check(proj, args.mpn):
+                ok = not r["problems"]
+                bad += not ok
+                print(f"{r['mpn']}: {'ok' if ok else 'INVALID'}, quality {r['quality']}")
+                for x in r["problems"]:
+                    print(f"  ! schema {x}")
+                for x in r["issues"]:
+                    print(f"  ? {x}")
+            return 1 if bad else 0
+        if args.action == "show":
+            project, shared = ds.stores(proj)
+            for mpn in args.mpn:
+                ex = project.extraction(mpn) or (shared.extraction(mpn) if shared else None)
+                print(ds.summary(ex) if ex else f"! {mpn}: no extraction (run the librarian)")
             return 0
         if args.action == "sync":
             res = ds.sync(proj, fresh=args.fresh, download=not args.offline)
@@ -194,12 +228,14 @@ def main(argv=None):
     for alias, sid in ALIASES.items():
         sub.add_parser(alias, help=f"stage {sid}: {TITLES[sid]}")
     sub.add_parser("review", help="B4 gate: check constraints.json")
-    d = sub.add_parser("datasheets", help="part-fact cache: status, sync, publish")
-    d.add_argument("action", choices=("status", "sync", "publish"))
+    d = sub.add_parser("datasheets", help="part-fact cache: status, sync, add, check, show, publish, paths")
+    d.add_argument("action", choices=("status", "sync", "add", "check", "show", "publish", "paths"))
+    d.add_argument("mpn", nargs="*", help="add: MPN FILE_OR_URL; check/show: MPNs")
     d.add_argument("--all", action="store_true", help="status: include passives")
     d.add_argument("--fresh", action="store_true", help="sync: don't copy from the shared cache")
     d.add_argument("--offline", action="store_true", help="sync: don't download PDFs")
-    d.add_argument("--force", action="store_true", help="publish: replace shared entries")
+    d.add_argument("--force", action="store_true",
+                   help="publish: replace shared entries; add: skip the part-name check")
     sub.add_parser("status", help="show stage results")
     sub.add_parser("doctor", help="check the environment")
     args = ap.parse_args(argv)

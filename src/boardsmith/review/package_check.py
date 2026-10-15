@@ -2,7 +2,8 @@
 
 - pins (every part): a symbol pin on a net with no footprint pad of the same number is an
   error (the USB-C SH/S1 and mirrored-connector class); KiCad would silently drop the
-  connection.
+  connection. A numbered pad with no symbol pin is a warning: it gets no net (an exposed
+  pad left floating).
 - package (parts with an extraction): footprint pad count against ``base.package.pin_count``
   (with or without the exposed pad; extractions differ on counting it), pitch against
   ``pitch_mm``, a thermal pad against ``thermal_pad``, the datasheet pin numbers against the
@@ -40,8 +41,7 @@ def lib_paths(proj):
         fp_dir = Kicad.find(proj.cfg["kicad"]).footprint_dir
     except KicadError:
         fp_dir = ""
-    over = {n: os.path.join(proj.root, os.path.expanduser(p))
-            for n, p in proj.cfg["libraries"]["footprints"].items()}
+    over = proj.cfg["libraries"]["footprints"]  # absolute (config.Project.load)
     stock = {n[:-len(".pretty")]: os.path.join(fp_dir, n) for n in os.listdir(fp_dir)
              if n.endswith(".pretty")} if fp_dir else {}
     return stock | over
@@ -104,12 +104,19 @@ def pitch(pads, skip):
 
 
 def check_pins(comp, fp):
-    """Errors for symbol pins on nets that have no footprint pad."""
+    """An error for symbol pins on nets with no footprint pad; a warning for numbered pads
+    with no symbol pin (no net on the board: an exposed pad left floating, say)."""
     nums = {p[0] for p in fp["pads"]}
+    pins = {p["num"] for p in comp.get("pins", [])}
     bad = [p["num"] for p in comp.get("pins", [])
            if p.get("net") and "NOCONNECT" not in p["net"].upper() and p["num"] not in nums]
-    return [{"severity": "error", "check": "pins",
-             "detail": f"{comp['ref']} ({comp['footprint']}): symbol pins {bad} on nets have no pad"}] if bad else []
+    out = [{"severity": "error", "check": "pins",
+            "detail": f"{comp['ref']} ({comp['footprint']}): symbol pins {bad} on nets have no pad"}] if bad else []
+    loose = sorted(nums - pins, key=_nat)
+    if loose and pins:
+        out.append({"severity": "warning", "check": "pads",
+                    "detail": f"{comp['ref']} ({comp['footprint']}): pads {loose} have no symbol pin, so no net"})
+    return out
 
 
 def check_package(ref, lib_id, fp, ex):
@@ -176,7 +183,7 @@ def check(netlist, store, libs):
             continue
         f = check_pins(comp, fp)
         pin_findings += f
-        bad_refs += [comp["ref"]] if f else []
+        bad_refs += [comp["ref"]] if any(x["severity"] == "error" for x in f) else []
         mpn = datasheets.mpn_of(comp)
         if mpn:
             by_mpn.setdefault(mpn, []).append(comp)

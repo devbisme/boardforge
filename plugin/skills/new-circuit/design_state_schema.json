@@ -1,0 +1,37 @@
+{
+  "version": "1.0",
+  "circuit_name": "unnamed",
+  "stage": "initial",
+  "last_updated": "",
+  "design_file": null,
+  "requirements_complete": false,
+  "architecture_complete": false,
+  "sourcing_complete": false,
+  "datasheets_complete": false,
+  "review_status": {
+    "last_run": null,
+    "status": null,
+    "skidl_erc_errors": null,
+    "kicad_erc_errors": null,
+    "parity_ok": null,
+    "hard_fail": [],
+    "report_path": null
+  },
+  "physical_status": null,
+  "coding_mode": null,
+  "use_cache": true,
+  "blocked_until": null,
+  "block_manifest": [],
+  "sourcing_escalation_count": 0,
+  "review_iteration_count": 0,
+  "architecture_rework_count": 0,
+  "handoffs": {
+    "requirements": null,
+    "architecture": null,
+    "sourcing": null,
+    "datasheets": null,
+    "coding": null,
+    "review": null
+  },
+  "last_handoff": null
+}

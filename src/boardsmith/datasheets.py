@@ -9,9 +9,10 @@ Layout is kicad-happy's (``skills/datasheets/references/cache-layout.md``), used
         extracted/<MPN>.json         one fact envelope per MPN (+ .plan.json/.scout.json)
 
 ``sync`` fills the project from the shared cache, then finds missing PDFs (local search
-directories, the symbol's datasheet URL, LCSC). ``publish`` copies new extractions back.
-Extraction itself is LLM work (kicad-happy's extraction pipeline, run by an agent); this
-module only moves, checks and reads its results.
+directories, the symbol's datasheet URL, LCSC); ``add`` takes one PDF by path or URL.
+``publish`` copies new extractions back. Extraction itself is LLM work (an agent following
+kicad-happy's prompts and schemas); ``check`` validates its result and fills in the derived
+fields, ``summary`` renders it for coders.
 """
 
 import datetime
@@ -30,6 +31,22 @@ SCHEMAS = os.path.join(VENDOR, "datasheets", "schemas")
 LCSC_FETCH = os.path.join(VENDOR, "lcsc", "scripts", "fetch_datasheet_lcsc.py")
 MPN_FIELDS = ("mpn", "mfr_pn", "mfr part number", "manufacturer_part_number", "manufacturer part number")
 SIDE_FILES = (".plan.json", ".scout.json", ".variant.json")
+SKILL = os.path.join(VENDOR, "datasheets")  # kicad-happy's extraction prompts, schemas, scripts
+
+
+def kh(module):
+    """Import one of kicad-happy's datasheets/scripts modules."""
+    import importlib.util
+
+    d = os.path.join(SKILL, "scripts")
+    sys.path.insert(0, d)
+    try:
+        spec = importlib.util.spec_from_file_location("kh_" + module, os.path.join(d, module + ".py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.remove(d)
+    return mod
 
 
 def sanitize(mpn):
@@ -208,11 +225,28 @@ def stores(proj):
 
 
 def project_parts(proj):
+    """parts() of the built design (build/netlist.json), else of the sourced BOM CSV
+    ([review] bom), so datasheets can be gathered before there is any circuit code."""
+    prefixes = set(proj.cfg["datasheets"]["prefixes"])
     path = os.path.join(proj.out, "netlist.json")
-    if not os.path.exists(path):
-        raise FileNotFoundError("no netlist: run `boardsmith sch` (C1) first")
-    with open(path) as f:
-        return parts(json.load(f), set(proj.cfg["datasheets"]["prefixes"]))
+    if os.path.exists(path):
+        with open(path) as f:
+            return parts(json.load(f), prefixes)
+    bom = os.path.join(proj.root, proj.cfg.get("review", {}).get("bom", "sourcing/sourced_bom.csv"))
+    if not os.path.exists(bom):
+        raise FileNotFoundError("no netlist (run `boardsmith sch`) and no sourced BOM "
+                                f"({os.path.relpath(bom, proj.root)})")
+    import csv
+
+    from boardsmith.review.bom_check import expand_refdes
+
+    comps = []
+    with open(bom, newline="", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            row = {k.strip().casefold(): (v or "").strip() for k, v in row.items() if k}
+            comps += [{"ref": r, "value": row.get("value"), "footprint": row.get("footprint"),
+                       "fields": {"MPN": row.get("mpn", "")}} for r in expand_refdes(row.get("refdes"))]
+    return parts({"components": comps}, prefixes)
 
 
 def quality(ex):
@@ -294,11 +328,12 @@ def identify(pdf, mpn, pages=5):
     return any(key[:n] in text for n in range(len(key), need - 1, -1))
 
 
-def fetch(mpn, url, dest, timeout=90):
-    """Download a PDF with kicad-happy's LCSC fetcher: the URL first, then an LCSC search.
-    A PDF that doesn't name the part is discarded: symbol URLs often cover a sibling part,
-    and LCSC's search is fuzzy. Returns (source url or "lcsc", None) or (None, why)."""
-    tries = ([("url", [url])] if url else []) + [("lcsc", ["--search", mpn])]
+def fetch(mpn, url, dest, timeout=90, search=True):
+    """Download a PDF with kicad-happy's LCSC fetcher: the URL first, then (``search``) an
+    LCSC search. A PDF that doesn't name the part is discarded: symbol URLs often cover a
+    sibling part, and LCSC's search is fuzzy. Returns (source url or "lcsc", None) or
+    (None, why)."""
+    tries = ([("url", [url])] if url else []) + ([("lcsc", ["--search", mpn])] if search else [])
     why = []
     for name, args in tries:
         try:
@@ -359,6 +394,81 @@ def sync(proj, fresh=False, download=True, log=print):
     return done
 
 
+def add(proj, mpn, src, force=False):
+    """Put one PDF (a file or URL) into the project's datasheets for ``mpn``, after checking
+    it is a PDF that names the part (``force`` skips the name check). Returns its path."""
+    project, _ = stores(proj)
+    os.makedirs(project.root, exist_ok=True)
+    url = src if re.match(r"https?://", src) else None
+    if url:
+        tmp = os.path.join(project.root, sanitize(mpn) + ".pdf.part")
+        origin, why = fetch(mpn, url, tmp, search=False)
+        if not origin and not (force and is_pdf(tmp)):
+            raise ValueError(f"{mpn}: {why}")
+        src = tmp
+    elif not is_pdf(src):
+        raise ValueError(f"{src} is not a PDF")
+    elif identify(src, mpn) is False and not force:
+        raise ValueError(f"{src} doesn't name {mpn} in its first pages (--force to add it anyway)")
+    path = project.add_pdf(src, mpn, url, name=sanitize(mpn) + ".pdf")
+    if url and os.path.exists(src):
+        os.remove(src)
+    project.save()
+    return path
+
+
+def _page_count(pdf):
+    try:
+        out = subprocess.run(["pdfinfo", pdf], capture_output=True, text=True, timeout=30).stdout
+        return int(next(line.split()[-1] for line in out.splitlines() if line.startswith("Pages:")))
+    except (OSError, StopIteration, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def check(proj, mpns):
+    """Validate extractions an agent wrote and fill in what can be derived: source.sha256,
+    local_path and page_count from the project's PDF, schema_version, extraction.extracted_at
+    and quality_score (kicad-happy's v1.4 score). Rewrites each file; returns
+    [{mpn, quality, problems, issues}] (schema problems, kicad-happy consistency issues)."""
+    project, _ = stores(proj)
+    score, verify = kh("datasheet_score"), kh("datasheet_verify")
+    now = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = []
+    for mpn in mpns:
+        ex = project.extraction(mpn)
+        if ex is None:
+            rows.append({"mpn": mpn, "quality": None, "problems": [
+                f"no {os.path.relpath(project.extraction_file(mpn), proj.root)} (or not valid JSON)"], "issues": []})
+            continue
+        src = ex.setdefault("source", {})
+        src.setdefault("mpn", mpn)
+        pdf = project.pdf(mpn)
+        if pdf:
+            src["sha256"] = sha256(pdf)
+            src["local_path"] = os.path.relpath(pdf, project.root)
+            src["page_count"] = _page_count(pdf) or src.get("page_count")
+        cats = ex.get("categories") or []
+        ex.setdefault("schema_version", {"base": "1.0", "categories": {}})
+        ex["schema_version"].setdefault("categories", {})
+        for c in cats:
+            ex["schema_version"]["categories"].setdefault(c, "1.0")
+        meta = ex.setdefault("extraction", {})
+        for k, v in (("extracted_at", now), ("extractor_schema_version", "1.0"), ("extractor_scout", None),
+                     ("plan_ref", None)):
+            meta.setdefault(k, v)
+        meta["quality_score"] = score.score_v14_extraction(ex)["score"]
+        with open(project.extraction_file(mpn), "w") as f:
+            json.dump(ex, f, indent=1)
+        problems, checked = validate(ex)
+        if not checked:
+            problems = ["jsonschema not installed: schema not checked"]
+        issues = [f"{i['path']}: {i['description']}" for i in verify.verify_v14_extraction(ex)]
+        if not pdf:
+            issues.append("no PDF in the project's datasheets: facts can't be traced to a document")
+        rows.append({"mpn": mpn, "quality": meta["quality_score"], "problems": problems, "issues": issues})
+    return rows
+
+
 def publish(proj, force=False, log=print):
     """Copy the project's extractions into the shared cache. An entry already there is kept
     unless the project's is newer and scores at least as well (or ``force``)."""
@@ -415,6 +525,54 @@ def amp_facts(store, mpn):
     if slew:
         out["slew_vus"] = slew
     return out or None
+
+
+def _spec(specs):
+    """'min / typ / max unit (condition) p<page>' for the first SpecValue of a list."""
+    for v in specs or []:
+        if not isinstance(v, dict):
+            continue
+        nums = " / ".join("-" if v.get(k) is None else f"{v[k]:g}" for k in ("min", "typ", "max"))
+        cond = f" ({v['condition']})" if v.get("condition") else ""
+        page = (v.get("evidence") or {}).get("page")
+        return f"{nums} {v.get('unit') or ''}{cond}" + (f" p{page}" if page else "")
+    return None
+
+
+def summary(ex):
+    """Markdown view of an extraction for coders and SUMMARY.md: package, ratings, pinout,
+    category facts. Generated, so the summary's tables can't drift from the extraction."""
+    src, base = ex.get("source") or {}, ex.get("base") or {}
+    pkg = base.get("package") or {}
+    q = (ex.get("extraction") or {}).get("quality_score")
+    out = [f"# {src.get('mpn', '?')} - {base.get('description') or base.get('family', '')}", "",
+           f"{src.get('manufacturer', '')}, datasheet {src.get('local_path') or src.get('source_url') or '-'}"
+           f"{', quality ' + str(q) if q is not None else ''}", "",
+           f"Package: {pkg.get('code', '?')}, {pkg.get('pin_count') or '?'} pins, pitch "
+           f"{pkg.get('pitch_mm') or '?'} mm, thermal pad {pkg.get('thermal_pad')}", ""]
+    for title, key in (("Absolute maximum", "absolute_max"), ("Recommended operating", "recommended_operating")):
+        rows = [(k, _spec(v)) for k, v in (base.get(key) or {}).items() if _spec(v)]
+        if rows:
+            out += [f"## {title} (min / typ / max)", ""] + [f"- {k}: {v}" for k, v in rows] + [""]
+    pins = base.get("pinout") or []
+    if pins:
+        out += ["## Pinout", "", "| Pin | Name | Type | Domain | Function |", "|---|---|---|---|---|"]
+        for p in pins:
+            out.append(f"| {','.join(str(n) for n in p.get('numbers') or [])} | {p.get('name', '')} | "
+                       f"{p.get('type', '')} | {p.get('power_domain') or ''} | {p.get('description') or ''} |")
+        out.append("")
+    for cat in ex.get("categories") or []:
+        block = ex.get(cat) or {}
+        rows = []
+        for k, v in block.items():
+            if isinstance(v, list) and v and isinstance(v[0], dict) and "unit" in v[0]:
+                if _spec(v):
+                    rows.append(f"- {k}: {_spec(v)}")
+            elif isinstance(v, (str, int, float, bool)) and v is not None:
+                rows.append(f"- {k}: {v}")
+        if rows:
+            out += [f"## {cat}", ""] + rows + [""]
+    return "\n".join(out)
 
 
 def expose(proj):

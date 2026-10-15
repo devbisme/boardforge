@@ -1,5 +1,6 @@
 """B4 review gate (§4.10): checks constraints.json, the parts against their datasheet
-extractions, and the footprints against symbols and packages; writes reports/review.json. Status per result: PASS, FAIL or NOT CHECKED;
+extractions, the sourced BOM against the design, and the footprints against symbols and
+packages; writes reports/review.json. Status per result: PASS, FAIL or NOT CHECKED;
 the gate fails on a HARD failure and warns on a SOFT failure or anything not checked."""
 
 import json
@@ -8,7 +9,7 @@ import time
 
 from boardsmith import datasheets
 from boardsmith.review import constraints as cons
-from boardsmith.review import budget, datasheet_check, package_check, spice_path
+from boardsmith.review import bom_check, budget, datasheet_check, package_check, spice_path
 
 
 def review(proj):
@@ -55,6 +56,10 @@ def review(proj):
                                        set(proj.cfg["datasheets"]["prefixes"])):
             r["seconds"] = round(time.time() - t0, 2)
             results.append(r)
+        t0 = time.time()
+        r = bom_check.check(netlist, os.path.join(proj.root, cfg.get("bom", "sourcing/sourced_bom.csv")))
+        r["seconds"] = round(time.time() - t0, 2)
+        results.append(r)
         t0 = time.time()
         for r in package_check.check(netlist, store, package_check.lib_paths(proj)):
             r["seconds"] = round(time.time() - t0, 2)

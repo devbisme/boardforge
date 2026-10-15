@@ -17,7 +17,7 @@ USER_CONFIG = os.path.join(
 
 DEFAULTS = {
     "design": {
-        "file": None,  # SKiDL source, relative to the project dir
+        "file": None,  # SKiDL source (.py, or a package dir with __main__.py), project-relative
         "top": None,  # function that builds the circuit; None = the file builds it on import
         "name": None,  # project/file stem; default = design file stem
         "title": "",
@@ -29,7 +29,7 @@ DEFAULTS = {
         "symbol_dir": "",
         "footprint_dir": "",
     },
-    # Extra libraries: {nickname = "path/to/lib.pretty"}; they override stock ones.
+    # Extra libraries: {nickname = "path/to/lib.pretty"} (project-relative); they override stock ones.
     "libraries": {"footprints": {}},
     "fab": {"name": "jlcpcb", "tier": "multilayer", "renders": True},
     "board": {
@@ -93,6 +93,7 @@ DEFAULTS = {
     # B4 review gate (§4.10): constraints.json checked against the design.
     "review": {
         "constraints": "constraints.json",  # project-relative
+        "bom": "sourcing/sourced_bom.csv",  # sourced BOM checked against the design
         "ngspice": "",  # path; default: on PATH
         # Amplifier models for the SPICE path gate: {regex on value/MPN/symbol = {type =
         # "opamp"|"fda", gbw_hz, aol_db, slew_vus, pins = {role = pin number}}}.
@@ -152,6 +153,8 @@ class Project:
         if not d["file"]:
             raise ValueError(f"{path}: [design] file is required")
         d["file"] = os.path.join(root, d["file"])
+        libs = cfg["libraries"]
+        libs["footprints"] = {n: os.path.join(root, os.path.expanduser(p)) for n, p in libs["footprints"].items()}
         d["name"] = d["name"] or os.path.splitext(os.path.basename(d["file"]))[0]
         return cls(root=root, cfg=cfg)
 

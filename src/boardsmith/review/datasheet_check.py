@@ -15,28 +15,11 @@ An extraction scoring under kicad-happy's trust threshold (60) turns errors into
 kicad-happy's own ``datasheet_verify`` also runs inside the C5 schematic analysis.
 """
 
-import importlib.util
-import os
-import sys
-
 from boardsmith import datasheets
 from boardsmith.review.spice_path import ground_and_rails, rail_volts
 
 SUPPLY_KEYS = ("VS", "VSUPPLY", "VCC", "VDD", "VIN", "V+", "VPWR")
 TRUST = 60
-_VERIFY = os.path.join(os.path.dirname(datasheets.SCHEMAS), "scripts", "datasheet_verify.py")
-
-
-def _kh_verify():
-    d = os.path.dirname(_VERIFY)
-    sys.path.insert(0, d)
-    try:
-        spec = importlib.util.spec_from_file_location("kh_datasheet_verify", _VERIFY)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-    finally:
-        sys.path.remove(d)
-    return mod
 
 
 def _lim(specs, field):
@@ -151,7 +134,7 @@ def result(rid, kind, refs, findings):
 
 def check(netlist, store, dc, prefixes):
     """Gate results: one per MPN with an extraction, plus one listing the parts without."""
-    verify = _kh_verify()
+    verify = datasheets.kh("datasheet_verify")
     ground, rails = ground_and_rails(netlist, dc)
     by_mpn, missing = {}, []
     for comp in netlist["components"]:

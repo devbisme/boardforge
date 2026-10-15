@@ -166,6 +166,7 @@ class Pipeline:
                 os.remove(os.path.join(kdir, f))
         job = {"design": d["file"], "top": d["top"], "name": self.p.name, "title": d["title"],
                "symbol_dir": self.k.symbol_dir, "out_json": self.p.netlist_json, "sch_dir": kdir,
+               "lib_dirs": [self.p.root, os.path.join(self.p.root, "symbols")],
                "result": os.path.join(self.p.work, "skidl_result.json")}
         jf = os.path.join(self.p.work, "skidl_job.json")
         with open(jf, "w") as f:

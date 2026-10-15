@@ -121,7 +121,7 @@ def test_gate_status_and_report(tmp_path):
     rep = run({**base, "id": "ok", "tag": "HARD", "max_db": -2.9},
               {**base, "id": "soft", "tag": "SOFT", "max_db": -10},
               {"id": "rail", "kind": "rail_current", "tag": "ASSUMED", "net": "+3V3", "max_a": 1})
-    assert rep["status"] == "WARN" and rep["soft_fail"] == ["soft"] and rep["not_checked"] == ["rail"]
+    assert rep["status"] == "WARN" and rep["soft_fail"] == ["soft"] and rep["not_checked"] == ["rail", "BOM"]
     assert (tmp_path / "build" / "reports" / "review.json").exists()
     rep = run({**base, "id": "hard", "tag": "HARD", "max_db": -10})
     assert rep["status"] == "FAIL" and rep["hard_fail"] == ["hard"]

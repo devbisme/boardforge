@@ -3,7 +3,8 @@
 Runs in a subprocess (``python -m boardsmith.skidl_runner job.json``) so SKiDL's global
 state, logging and working directory stay out of the orchestrator.
 
-Job keys: design, top, name, title, symbol_dir, out_json, sch_dir, result.
+Job keys: design (a .py file, or a package directory with __main__.py), top, name, title,
+symbol_dir, lib_dirs, out_json, sch_dir, result.
 Result keys: ok, components, nets, nc_nets, sheets, erc_errors, erc_warnings,
 sym_libs {nickname: path}, fp_libs [nickname], warnings.
 """
@@ -37,17 +38,22 @@ def run(job):
     from schematizer import render
 
     warnings = []
-    design = job["design"]
+    design = job["design"].rstrip(os.sep)
     design_dir = os.path.dirname(design)
     os.chdir(design_dir)
     sys.path.insert(0, design_dir)
     skidl.set_default_tool(KICAD10)
     # The design may add its own library directories; it should not need to name KiCad's.
-    lib_search_paths[KICAD10] = [p for p in (job.get("symbol_dir"), design_dir) if p]
+    lib_search_paths[KICAD10] = [p for p in [job.get("symbol_dir"), design_dir] + job.get("lib_dirs", [])
+                                 if p and os.path.isdir(p)]
     skidl.config.pickle_dir = os.path.join(job["sch_dir"], "..", "work", "skidl_pickles")
 
-    # run_name != "__main__", so the design's own command-line block doesn't run.
-    mod = runpy.run_path(design, run_name="boardsmith_design")
+    # run_name != "__main__", so the design's own command-line block doesn't run. A package
+    # (circuits/<name>/ with __main__.py and relative imports) runs as a module.
+    if os.path.isdir(design):
+        mod = runpy.run_module(os.path.basename(design), run_name="boardsmith_design", alter_sys=True)
+    else:
+        mod = runpy.run_path(design, run_name="boardsmith_design")
     if job.get("top"):
         mod[job["top"]]()
     ckt = builtins.default_circuit
