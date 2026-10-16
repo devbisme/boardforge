@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "boardforge"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Turn a SKiDL circuit into a routed, manufacturable KiCad board, headless."
 readme = "README.md"
 # tomllib (stdlib) is used for configuration and fab profiles. KiCad 10 ships Python 3.11,
