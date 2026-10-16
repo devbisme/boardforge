@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -10,12 +10,12 @@ readme = "README.md"
 # tomllib (stdlib) is used for configuration and fab profiles. KiCad 10 ships Python 3.11,
 # and the board scripts in boardforge.pcb run under it, so 3.11 is the floor for both sides.
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Dave Vandenbout", email = "dave@vdb.name" }]
 keywords = ["KiCad", "PCB", "SKiDL", "EDA", "routing"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -23,12 +23,17 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
 ]
-# skidl: needs a release with .kicad_symdir loading and the fields/attrs/netclasses netlist
-# keys (currently the skidl 'boardforge' branch). schematizer >= 0.2.0 has labels mode.
+# skidl >= 3.0.0 reads KiCad 10 .kicad_symdir libraries and writes the fields, attributes and
+# net classes into its netlist; schematizer >= 0.2.0 has the labels-only schematic mode.
 dependencies = [
-    "skidl",
+    "skidl>=3.0.0",
     "schematizer>=0.2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/devbisme/boardforge"
+Repository = "https://github.com/devbisme/boardforge"
+Issues = "https://github.com/devbisme/boardforge/issues"
 
 [project.optional-dependencies]
 test = ["pytest"]

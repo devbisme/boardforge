@@ -13,15 +13,38 @@ checks → fab outputs) and the review gate (B4) work. The detail stage's agents
 Code plugin ([`plugin/`](plugin/README.md)), run end to end twice on the dual-ADC design. The explore stage is not
 started. Design: [`docsrc/design.md`](docsrc/design.md).
 
-## Install (development)
+## Install
+boardforge needs Python 3.11 or later and these released tools:
+
+| Tool | Version | Needed for |
+|---|---|---|
+| [KiCad](https://www.kicad.org/download/) | 10.0 (tested with 10.0.4) | everything: `kicad-cli` and KiCad's Python (`pcbnew`) |
+| [Freerouting](https://github.com/freerouting/freerouting/releases) | 2.4 or later (tested with 2.4.1) | routing (optional: the built-in A* router handles small boards alone) |
+| [ngspice](https://ngspice.sourceforge.io/download.html) | 44 or later (tested with 44.2) | the review gate's simulation checks (optional) |
+| pdftotext ([Poppler](https://poppler.freedesktop.org/) utilities) | any | checking that a downloaded datasheet is the right part (optional) |
+
+Install boardforge from PyPI. This also installs [SKiDL](https://pypi.org/project/skidl/)
+3.0.0 or later and [schematizer](https://pypi.org/project/schematizer/) 0.2.0 or later:
 ```bash
-uv pip install -e .            # or: pip install -e .
-boardforge doctor              # finds KiCad 10, its Python, Freerouting
+uv tool install "boardforge[analysis]"   # or: pip install "boardforge[analysis]"
+boardforge doctor                        # checks KiCad 10, its Python, Freerouting, ngspice
 ```
-Needs KiCad 10 (kicad-cli and its Python), Freerouting (optional; the built-in A* router
-works alone on small boards), and a SKiDL with `.kicad_symdir` support (currently SKiDL's
-`boardforge` branch). Machine-specific paths can go in `~/.config/boardforge/config.toml`,
-using the same `[kicad]` and `[routing.freerouting]` keys as a project file.
+The `analysis` extra adds `jsonschema`, which validates datasheet extractions.
+
+`boardforge doctor` finds KiCad and Freerouting in their usual install locations and on
+`PATH`. Otherwise, set their paths in `~/.config/boardforge/config.toml`, using the same
+`[kicad]` and `[routing.freerouting]` keys as a project file:
+```toml
+[kicad]
+cli = "/opt/kicad/bin/kicad-cli"
+python = "/opt/kicad/bin/python3"
+
+[routing.freerouting]
+path = "/opt/freerouting/bin/freerouting"
+```
+
+To design with Claude Code agents, also install the boardforge plugin
+([`plugin/README.md`](plugin/README.md)).
 
 ## Use
 A project is a directory with a SKiDL file and a `boardforge.toml`:
