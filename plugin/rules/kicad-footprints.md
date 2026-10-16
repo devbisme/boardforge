@@ -30,12 +30,12 @@ When a part has no KiCad footprint (unusual modules, custom ICs):
 
 1. Create `footprints/<LibraryName>.pretty/<FootprintName>.kicad_mod`
    (`scripts/generate-footprint.py`)
-2. Add it to `boardsmith.toml`:
+2. Add it to `boardforge.toml`:
    ```toml
    [libraries.footprints]
    LibraryName = "footprints/LibraryName.pretty"
    ```
-   boardsmith writes it into the project's fp-lib-table; no KiCad preferences needed.
+   boardforge writes it into the project's fp-lib-table; no KiCad preferences needed.
 3. Reference in SKiDL as `'LibraryName:FootprintName'`
 
 ## .kicad_mod File Format Rules

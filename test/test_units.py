@@ -6,10 +6,10 @@ import re
 
 import pytest
 
-from boardsmith import analysis, config, drc, fabs, project, routers
-from boardsmith.netlist import compare, read_kicad_netlist
-from boardsmith.routers.specctra import prepare_dsn
-from boardsmith.state import State
+from boardforge import analysis, config, drc, fabs, project, routers
+from boardforge.netlist import compare, read_kicad_netlist
+from boardforge.routers.specctra import prepare_dsn
+from boardforge.state import State
 
 NETLIST = """(export (version "E")
   (components
@@ -108,7 +108,7 @@ def test_lib_tables(tmp_path):
 
 def test_config_merge(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "USER_CONFIG", str(tmp_path / "none.toml"))
-    (tmp_path / "boardsmith.toml").write_text(
+    (tmp_path / "boardforge.toml").write_text(
         '[design]\nfile = "d.py"\n[board]\nlayers = 2\n[routing.astar]\npasses = 3\n')
     p = config.Project.load(str(tmp_path))
     assert p.name == "d"
@@ -274,7 +274,7 @@ def test_state_marks_later_stages_stale(tmp_path):
 
 
 def test_stable_uuids_make_board_files_repeatable(tmp_path):
-    from boardsmith.pcbfile import stable_uuids
+    from boardforge.pcbfile import stable_uuids
 
     def fp(ref, u):
         return (f'\t(footprint "R"\n\t\t(layer "F.Cu")\n\t\t(uuid "{u}")\n'
@@ -318,9 +318,9 @@ def test_pin_swap_orders_bus_around_both_outlines(monkeypatch):
     stub = types.ModuleType("pcbnew")
     stub.FromMM = stub.ToMM = lambda v: v
     monkeypatch.setitem(sys.modules, "pcbnew", stub)
-    for m in ("boardsmith.pcb.common", "boardsmith.pcb.pinswap"):
+    for m in ("boardforge.pcb.common", "boardforge.pcb.pinswap"):
         sys.modules.pop(m, None)
-    ps = importlib.import_module("boardsmith.pcb.pinswap")
+    ps = importlib.import_module("boardforge.pcb.pinswap")
     # A QFN at the origin with pads on its top, right and bottom edges; an FPGA to the right
     # with a column of pins on its left edge (y grows downwards, as in KiCad).
     pads = [((-1, -2), "t0"), ((1, -2), "t1"), ((2, -1), "r0"), ((2, 1), "r1"),
@@ -347,9 +347,9 @@ def test_pin_swap_far_row_of_a_tsop_faces_away(monkeypatch):
     stub = types.ModuleType("pcbnew")
     stub.FromMM = stub.ToMM = lambda v: v
     monkeypatch.setitem(sys.modules, "pcbnew", stub)
-    for m in ("boardsmith.pcb.common", "boardsmith.pcb.pinswap"):
+    for m in ("boardforge.pcb.common", "boardforge.pcb.pinswap"):
         sys.modules.pop(m, None)
-    ps = importlib.import_module("boardsmith.pcb.pinswap")
+    ps = importlib.import_module("boardforge.pcb.pinswap")
 
     class P:
         def __init__(self, x, y):
@@ -371,10 +371,10 @@ def test_pin_swap_far_row_of_a_tsop_faces_away(monkeypatch):
 
 
 def test_compaction_steps_back_up_when_routing_fails(tmp_path, monkeypatch):
-    from boardsmith.physical import Pipeline
+    from boardforge.physical import Pipeline
 
     (tmp_path / "d.py").write_text("")
-    (tmp_path / "boardsmith.toml").write_text(
+    (tmp_path / "boardforge.toml").write_text(
         '[design]\nfile = "d.py"\n[placement.compact]\nenabled = true\nroute_retries = 3\n')
     proj = config.Project.load(str(tmp_path))
     pipe = Pipeline.__new__(Pipeline)
@@ -409,10 +409,10 @@ def test_compaction_steps_back_up_when_routing_fails(tmp_path, monkeypatch):
 
 
 def test_compaction_stops_when_passives_are_pushed_away(tmp_path):
-    from boardsmith.physical import Pipeline
+    from boardforge.physical import Pipeline
 
     (tmp_path / "d.py").write_text("")
-    (tmp_path / "boardsmith.toml").write_text('[design]\nfile = "d.py"\n')
+    (tmp_path / "boardforge.toml").write_text('[design]\nfile = "d.py"\n')
     proj = config.Project.load(str(tmp_path))
     pipe = Pipeline.__new__(Pipeline)
     pipe.cfg = proj.cfg

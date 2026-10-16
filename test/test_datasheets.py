@@ -6,8 +6,8 @@ import shutil
 
 import pytest
 
-from boardsmith import datasheets as ds
-from boardsmith.config import Project
+from boardforge import datasheets as ds
+from boardforge.config import Project
 
 EXAMPLE = os.path.join(os.path.dirname(ds.SCHEMAS), "examples", "lm358.json")
 
@@ -38,7 +38,7 @@ def _project(tmp_path, comps, **dscfg):
     (tmp_path / "d.py").write_text("")
     lines = ['[design]\nfile = "d.py"\n[datasheets]']
     lines += [f"{k} = {json.dumps(v)}" for k, v in {"cache": str(tmp_path / "shared"), **dscfg}.items()]
-    (tmp_path / "boardsmith.toml").write_text("\n".join(lines) + "\n")
+    (tmp_path / "boardforge.toml").write_text("\n".join(lines) + "\n")
     (tmp_path / "build").mkdir()
     nl = {"symbols": {}, "nets": [], "components": [
         {"ref": ref, "lib_id": "x:y", "value": ref, "fields": {"MPN": mpn} if mpn else {}, "pins": []}

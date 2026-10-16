@@ -16,7 +16,7 @@ Phase protocol and handoff format: `rules/phase-handoff.md`.
 Code standards and the modular file layout: `rules/skidl-syntax.md`.
 Run commands and KiCad paths: `rules/environment.md`.
 Plugin files resolve under `${CLAUDE_PLUGIN_ROOT}`; project files are relative to cwd.
-Commands (`boardsmith sch`, `boardsmith review`, `boardsmith datasheets …`): `rules/environment.md`.
+Commands (`boardforge sch`, `boardforge review`, `boardforge datasheets …`): `rules/environment.md`.
 
 **Entry:** **every** `handoffs/05_blocks/*.md`. Each declares its block's **final** signature,
 which may differ from the architecture — a coder is allowed to adjust and its handoff records
@@ -42,25 +42,25 @@ per block. Specifically:
 - Every block call passes `tag='<block_id>'` (repeated blocks: `'<block_id>_ch1'`, …) and
   `__main__.py` calls `_stabilize_tags()` at import time, after the last block call —
   § Stable netlists. Without these the netlist changes on every run.
-- No `ERC()` or `generate_*()` calls: boardsmith imports the package, runs ERC and writes
+- No `ERC()` or `generate_*()` calls: boardforge imports the package, runs ERC and writes
   the outputs.
 - A block that appears more than once gets its instance argument (e.g. `ch=1`, `ch=2`)
   so its refdes are deterministic.
 
 ## Run it
 
-`boardsmith.toml` already names the package (`[design] file = "circuits/<circuit_name>"`).
+`boardforge.toml` already names the package (`[design] file = "circuits/<circuit_name>"`).
 From the project root:
 
 ```bash
-boardsmith sch
-cp build/netlist.json /tmp/netlist.1.json && boardsmith sch && diff -q /tmp/netlist.1.json build/netlist.json
+boardforge sch
+cp build/netlist.json /tmp/netlist.1.json && boardforge sch && diff -q /tmp/netlist.1.json build/netlist.json
 ```
 
 The first run gives the SKiDL and KiCad ERC counts and the netlist parity; the messages,
 with the ref designator of every offending part, are in `build/reports/skidl.log` and
 `build/reports/erc.json`. The second run must produce an identical `build/netlist.json`; any
-difference means tags are not stable. Fix that before handing off. Then `boardsmith review`
+difference means tags are not stable. Fix that before handing off. Then `boardforge review`
 once for the `BOM` and `PKG:pins` results (a mismatch is attributed like an ERC error).
 
 ## Handoff — write it for the erc-reviewer

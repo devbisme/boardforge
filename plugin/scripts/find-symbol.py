@@ -22,7 +22,7 @@ Matching for an MPN, best first:
 A prefix match is only a candidate — the reel/temperature/package suffix it ignores
 can change the pinout, so confirm the package in the symbol's footprint filter.
 
-Searches: KiCad 10's symbol directory (as boardsmith finds it; $KICAD10_SYMBOL_DIR
+Searches: KiCad 10's symbol directory (as boardforge finds it; $KICAD10_SYMBOL_DIR
 overrides) and ./symbols (project-generated libraries).
 Exit status 1 if any query has no candidate at all.
 """
@@ -46,7 +46,7 @@ VENDOR_PREFIXES = ("SN", "MC")
 
 
 def symbol_dirs() -> list[Path]:
-    """KiCad's symbol directory (from boardsmith) and the project's symbols/."""
+    """KiCad's symbol directory (from boardforge) and the project's symbols/."""
     out = []
     for d in (kicad_dirs()["symbols"], "symbols"):
         p = Path(d).expanduser() if d else None
@@ -125,7 +125,7 @@ def main() -> int:
 
     dirs = symbol_dirs()
     if not dirs:
-        sys.exit("No KiCad symbol directory found — check `boardsmith doctor`")
+        sys.exit("No KiCad symbol directory found — check `boardforge doctor`")
     index = load_index(dirs)
 
     missing = 0

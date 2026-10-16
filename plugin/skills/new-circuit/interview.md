@@ -55,7 +55,7 @@ what still holds, and ask only about what changed.
    `last_handoff` set, and **`use_cache`**. Set it to `false` when the user wants a blank
    slate — "start fresh", "don't reuse other designs", or an evaluation run of the pipeline
    itself — and `true` otherwise. With it `false`, the librarian runs
-   `boardsmith datasheets sync --fresh` and doesn't `publish`, so the cross-project
+   `boardforge datasheets sync --fresh` and doesn't `publish`, so the cross-project
    datasheet cache is neither read nor written and no earlier design leaks into this
    one. Don't ask about it separately; take it from how the user framed the request, and
    record which you chose in the handoff's `## Decisions`.

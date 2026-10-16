@@ -16,7 +16,7 @@ Phase protocol and handoff format: `rules/phase-handoff.md`.
 Code standards, syntax reference, ERC and footprint rules: `rules/skidl-syntax.md` — follow
 it exactly; it is the authority, not your memory of SKiDL.
 Plugin files resolve under `${CLAUDE_PLUGIN_ROOT}`; project files are relative to cwd.
-Commands (`boardsmith sch`, `boardsmith review`, `boardsmith datasheets …`): `rules/environment.md`.
+Commands (`boardforge sch`, `boardforge review`, `boardforge datasheets …`): `rules/environment.md`.
 
 **Entry:** `handoffs/04_datasheets.md` — its `## Next phase must` gives you, per IC, the exact
 pin names and decoupling the datasheet requires. Follow it literally; that is why your pins
@@ -38,16 +38,16 @@ artifacts matter, which is what keeps the whole design in one context.
 
 ## After writing the file
 
-1. Run it: `boardsmith sch`. One line tells you the SKiDL ERC count, the KiCad ERC count
-   (on the schematic boardsmith generates from your code) and whether the netlist round
+1. Run it: `boardforge sch`. One line tells you the SKiDL ERC count, the KiCad ERC count
+   (on the schematic boardforge generates from your code) and whether the netlist round
    trip matched; the messages are in `build/reports/skidl.log` and `build/reports/erc.json`
-   (`boardsmith:erc-rules` classifies them).
+   (`boardforge:erc-rules` classifies them).
 2. Fix every ERC error and re-run. **Three attempts, then stop.**
 3. The post-write hook already syntax-checks and footprint-validates each Write. If it
    reports a bad footprint, fix the string from its suggestion; if no standard footprint
    exists, generate one with `scripts/generate-footprint.py` from the datasheet mechanical
    drawing (`rules/kicad-footprints.md`).
-4. Run `boardsmith review` once and read the `BOM` and `PKG:pins` lines: a BOM mismatch or a
+4. Run `boardforge review` once and read the `BOM` and `PKG:pins` lines: a BOM mismatch or a
    pin with no pad is yours to fix if the code is wrong (the BOM is the sourcer's). The
    other results are the reviewer's; don't chase them.
 5. Done means 0 ERC errors in both, parity ok, clean footprint validation, and `BOM` PASS.

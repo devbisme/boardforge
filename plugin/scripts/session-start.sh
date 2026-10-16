@@ -1,5 +1,5 @@
 #!/bin/bash
-# SessionStart hook: resolve the interpreter once, mark the session start, check boardsmith,
+# SessionStart hook: resolve the interpreter once, mark the session start, check boardforge,
 # print the pipeline status. Plain script, no model calls.
 set -uo pipefail
 
@@ -8,7 +8,7 @@ INPUT="$(cat 2>/dev/null || true)"
 
 # Per-session state shared with the other hooks. Keep this path rule identical to
 # run-hook.sh, post-write.sh, kicadlibs.py and stop-check.py.
-STATE_DIR="${TMPDIR:-/tmp}/boardsmith-plugin"
+STATE_DIR="${TMPDIR:-/tmp}/boardforge-plugin"
 mkdir -p "$STATE_DIR" 2>/dev/null
 
 # Resolve the real Python interpreter ONCE. Version-manager shims (pyenv, asdf) cost
@@ -27,13 +27,13 @@ if [ -n "$SESSION_ID" ] && [ ! -f "$STATE_DIR/$SESSION_ID.start" ]; then
     touch "$STATE_DIR/$SESSION_ID.start"
 fi
 
-echo "=== boardsmith plugin ==="
-if ! command -v boardsmith >/dev/null 2>&1; then
-    echo "⚠️  boardsmith is not on PATH: install it (uv tool install boardsmith), then run boardsmith doctor"
+echo "=== boardforge plugin ==="
+if ! command -v boardforge >/dev/null 2>&1; then
+    echo "⚠️  boardforge is not on PATH: install it (uv tool install boardforge), then run boardforge doctor"
 else
     # Prime the KiCad library-path cache the lookup scripts and hooks use.
     "$REAL_PY" -c "import sys; sys.path.insert(0, '$(dirname "$0")'); import kicadlibs; \
-d = kicadlibs.kicad_dirs(refresh=True); print('✓ KiCad libraries:', d['symbols'] or 'NOT FOUND (boardsmith doctor)')" 2>/dev/null
+d = kicadlibs.kicad_dirs(refresh=True); print('✓ KiCad libraries:', d['symbols'] or 'NOT FOUND (boardforge doctor)')" 2>/dev/null
 fi
 
 if [ -f "design_state.json" ]; then
@@ -50,5 +50,5 @@ print("   Cache   : {}".format("off (blank slate)" if s.get("use_cache") is Fals
 else
     echo "No design_state.json here — /new-circuit starts a design"
 fi
-[ -f boardsmith.toml ] && command -v boardsmith >/dev/null 2>&1 && boardsmith status 2>/dev/null | sed 's/^/   /'
+[ -f boardforge.toml ] && command -v boardforge >/dev/null 2>&1 && boardforge status 2>/dev/null | sed 's/^/   /'
 echo "=== ready ==="

@@ -1,6 +1,6 @@
 {
-  "name": "boardsmith",
-  "description": "Agentic circuit design with SKiDL and boardsmith: requirements, architecture, sourcing, datasheets, SKiDL code, scripted review gates, then a headless placed-and-routed KiCad board.",
+  "name": "boardforge",
+  "description": "Agentic circuit design with SKiDL and boardforge: requirements, architecture, sourcing, datasheets, SKiDL code, scripted review gates, then a headless placed-and-routed KiCad board.",
   "version": "0.1.0",
   "author": {
     "name": "Dave Vandenbout",

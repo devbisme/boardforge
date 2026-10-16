@@ -3,7 +3,7 @@
 import json
 import os
 
-from boardsmith.review import datasheet_check as dc
+from boardforge.review import datasheet_check as dc
 
 
 def _sv(mn=None, mx=None):
@@ -70,11 +70,11 @@ def test_single_supply_key_and_domains():
 
 
 def test_gate_fails_on_datasheet_error(tmp_path):
-    from boardsmith.config import Project
-    from boardsmith.review.gate import review
+    from boardforge.config import Project
+    from boardforge.review.gate import review
 
     (tmp_path / "d.py").write_text("")
-    (tmp_path / "boardsmith.toml").write_text('[design]\nfile = "d.py"\n[datasheets]\ncache = ""\n')
+    (tmp_path / "boardforge.toml").write_text('[design]\nfile = "d.py"\n[datasheets]\ncache = ""\n')
     proj = Project.load(str(tmp_path))
     nets = {"3": "+3V3", "6": "-3V3A", "1": "A", "4": "B", "8": "C"}
     comp = {"ref": "U9", "lib_id": "x:y", "value": "FDA", "fields": {"MPN": "FDA1"},

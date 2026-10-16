@@ -22,7 +22,7 @@ Phase protocol and handoff format: `rules/phase-handoff.md`.
 Code standards and syntax: `rules/skidl-syntax.md` (§ Cross-File SubCircuits covers modular
 blocks specifically).
 Plugin files resolve under `${CLAUDE_PLUGIN_ROOT}`; project files are relative to cwd.
-Commands (`boardsmith sch`, `boardsmith review`, `boardsmith datasheets …`): `rules/environment.md`.
+Commands (`boardforge sch`, `boardforge review`, `boardforge datasheets …`): `rules/environment.md`.
 
 **Entry:** your work order gives the contract — `block_id`, `block_name`,
 `function_signature`, `interface_nets`, your ref designators, output paths. Use the signature
@@ -76,10 +76,10 @@ parameters *are* the interface.
 **After writing:** `python -m py_compile circuits/<circuit_name>/<block_id>.py` — compile
 only. Don't import or run the block to smoke-test it: SKiDL writes `.erc`/`.log` files into
 the current directory on import, and the dual-ADC run left a dozen of them in the project
-root. The assembler's `boardsmith sch` is the test. The
+root. The assembler's `boardforge sch` is the test. The
 post-write hook footprint-validates automatically; fix any bad string from its suggestion, or
 generate a footprint with `scripts/generate-footprint.py` (`rules/kicad-footprints.md`).
-You do not run ERC — the assembler does, on the whole circuit (`boardsmith sch`).
+You do not run ERC — the assembler does, on the whole circuit (`boardforge sch`).
 
 Every part carries `fields["MPN"]` from the sourcing handoff (`rules/skidl-syntax.md`): the
 review gates find its datasheet facts, and the BOM check its row, by that field.

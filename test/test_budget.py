@@ -1,6 +1,6 @@
 """Budget recheck (§4.10 gate 6): rail loads against the source regulator's rating."""
 
-from boardsmith.review import budget
+from boardforge.review import budget
 
 
 def _reg(iout, quality=80, field="max"):

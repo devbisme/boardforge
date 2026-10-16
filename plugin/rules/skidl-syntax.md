@@ -26,9 +26,9 @@ alwaysApply: false
 - Decoupling: 100 nF + 10 µF per IC VCC pin, named `C_DECOUP_<IC_REF>`
 - Take MPNs, values, and footprint strings from `sourcing/sourced_bom.csv` verbatim —
   never invent a footprint and never hard-code a value that belongs in the BOM
-- Don't set `lib_search_paths`; boardsmith points SKiDL at KiCad 10's libraries and the
+- Don't set `lib_search_paths`; boardforge points SKiDL at KiCad 10's libraries and the
   project's `symbols/` directory
-- Net classes (optional; boardsmith turns them into board rules):
+- Net classes (optional; boardforge turns them into board rules):
   `power = NetClass("Power", track_width=0.3, clearance=0.15, priority=2)` then
   `net.netclasses = power` (not `net.netclass`, which does nothing)
 
@@ -145,13 +145,13 @@ def _stabilize_tags():
         if not getattr(part, 'tag', None):
             part.tag = part.ref
 
-_stabilize_tags()   # at import time: boardsmith imports this module, it doesn't run __main__
+_stabilize_tags()   # at import time: boardforge imports this module, it doesn't run __main__
 ```
 
-`boardsmith.toml` names the package directory: `[design] file = "circuits/my_circuit"`.
-boardsmith runs it as a module (so the relative imports work), runs ERC and writes the
+`boardforge.toml` names the package directory: `[design] file = "circuits/my_circuit"`.
+boardforge runs it as a module (so the relative imports work), runs ERC and writes the
 netlist itself — no `ERC()`, `generate_netlist()` or `generate_xml()` in the design. Run it
-with `boardsmith sch` (`rules/environment.md`).
+with `boardforge sch` (`rules/environment.md`).
 
 Key rules for modular blocks:
 - Block files: only `from skidl import *`, no cross-block imports
@@ -214,11 +214,11 @@ U1.do_erc = False     # silence all pins on a part
  
 ## Running
 
-boardsmith builds the circuit, runs ERC and writes every output (`boardsmith sch`; the board
-and fab files come from `boardsmith run`). A monolithic file either builds the circuit at
+boardforge builds the circuit, runs ERC and writes every output (`boardforge sch`; the board
+and fab files come from `boardforge run`). A monolithic file either builds the circuit at
 import time or exposes a function named in `[design] top`. Don't call `generate_netlist()`,
 `generate_xml()` or `generate_pcb()`; an `if __name__ == '__main__':` block is ignored by
-boardsmith and may stay for standalone runs.
+boardforge and may stay for standalone runs.
 
 ## ERC Rules (Non-negotiable)
 
@@ -227,7 +227,7 @@ boardsmith and may stay for standalone runs.
 - Decoupling caps required on every IC VCC pin — 100 nF minimum, named `C_DECOUP_<IC_REF>`
 - Pull-up/pull-down resistors required on all open-drain/open-collector pins
 - "Insufficient drive current" warnings on power nets without `PWR_FLAG` are expected — not errors
-- KiCad's ERC (run by `boardsmith sch` on the generated schematic) must also show 0 errors.
+- KiCad's ERC (run by `boardforge sch` on the generated schematic) must also show 0 errors.
   `.drive = POWER` satisfies SKiDL's ERC only; a supply that enters from a connector or
   through a passive (ferrite, fuse) needs a flag for KiCad's: `Part('power', 'PWR_FLAG')[1] += net`
   — otherwise KiCad reports `power_pin_not_driven`
@@ -235,17 +235,17 @@ boardsmith and may stay for standalone runs.
 ## Footprint Validation (Non-negotiable)
 
 - Every `footprint='Lib:Name'` string must resolve to an actual `.kicad_mod` file. The
-  post-write hook checks each Write/Edit; `boardsmith review` (`PKG:pins`) checks the built
+  post-write hook checks each Write/Edit; `boardforge review` (`PKG:pins`) checks the built
   design, including that every connected symbol pin has a pad of the same number and every
   numbered pad has a pin.
 - The package itself (pad count, pitch, thermal pad, body) is checked against the datasheet
-  extraction by `boardsmith review` (`PKG:<MPN>`), and the body variant against the BOM's
+  extraction by `boardforge review` (`PKG:<MPN>`), and the body variant against the BOM's
   `package` column (`BOM`).
 - If a part has no standard KiCad footprint: generate one with `scripts/generate-footprint.py`
   - Provide pad positions/sizes from the datasheet mechanical drawing
   - Output goes to `footprints/<LibraryName>.pretty/<FootprintName>.kicad_mod`
   - Add `<LibraryName> = "footprints/<LibraryName>.pretty"` under `[libraries.footprints]`
-    in `boardsmith.toml`, and reference it as `footprint='LibraryName:FootprintName'`
+    in `boardforge.toml`, and reference it as `footprint='LibraryName:FootprintName'`
 
 ## Common Pitfalls
  

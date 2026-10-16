@@ -1,6 +1,6 @@
 """Package check (§4.10 gate 5): pads against symbol pins and the datasheet package."""
 
-from boardsmith.review import package_check as pc
+from boardforge.review import package_check as pc
 
 # SOT-23-5-like: pads 1-3 on one side at 0.95 mm, 4-5 on the other; plus a QFN-ish variant
 MOD = """(footprint "X"

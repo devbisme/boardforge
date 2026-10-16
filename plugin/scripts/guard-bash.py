@@ -7,7 +7,7 @@ creation of a brand-new file as an overwrite. This check is deterministic, insta
 and free.
 
 Protected: any EXISTING file or directory under a path component named `datasheets`,
-`circuits`, `sourcing`, `symbols` or `footprints`. `build/` is not protected: boardsmith
+`circuits`, `sourcing`, `symbols` or `footprints`. `build/` is not protected: boardforge
 regenerates it. A command is blocked when it would delete or
 overwrite one — never merely for mentioning it. Creating new files there is allowed.
 
@@ -215,7 +215,7 @@ def main() -> int:
         + "\n  ".join(names)
         + "\n\nFiles under datasheets/, circuits/, sourcing/, symbols/ and footprints/ are "
         "protected. Edit circuit files with the Write/Edit tools (that runs the validator), "
-        "add datasheet PDFs with `boardsmith datasheets add`, write new files under a new "
+        "add datasheet PDFs with `boardforge datasheets add`, write new files under a new "
         "name, or record stale files in your handoff. If the user really wants this removed, "
         "ask them to run the command themselves with the `!` prefix.",
         file=sys.stderr,

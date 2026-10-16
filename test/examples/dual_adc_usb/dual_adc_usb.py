@@ -22,7 +22,7 @@ from skidl import *
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 set_default_tool(KICAD10)
-# boardsmith points SKiDL at KiCad 10's stock libraries (.kicad_symdir), so no library
+# boardforge points SKiDL at KiCad 10's stock libraries (.kicad_symdir), so no library
 # path is set here.
 
 # ----------------------------------------------------------------------------
@@ -644,7 +644,7 @@ def fpga(adc_bus, fifo_d, fifo_ctl, spi, ft_gpio, sd, fpga_adc_clk, sysclk, ctl,
     u.p[21] += fpga_adc_clk  # GBIN6, bank 3 (ADC capture domain)
     u.p[49] += sysclk  # GBIN5, bank 2 (PLL -> SDRAM)
 
-    # Default pin assignment by bank; boardsmith C3 pin swap overrides it (fpga_pinmap.json) to
+    # Default pin assignment by bank; boardforge C3 pin swap overrides it (fpga_pinmap.json) to
     # match the PCB placement and minimise bus crossings.
     adc_sigs = adc_bus["da"][:] + [adc_bus["ofa"]] + adc_bus["db"][:] + [adc_bus["ofb"]] + [ctl["adc_shdn"]]
     sd_sigs = (sd["dq"][:] + [sd["dqml"], sd["dqmh"], sd["we_n"], sd["cas_n"], sd["ras_n"], sd["cs_n"],
@@ -721,7 +721,7 @@ def dual_adc_usb():
     fpga(adc_bus, fifo_d, fifo_ctl, spi, ft_gpio, sd, fpga_adc_clk, sysclk, ctl, p3v3, p1v2, gnd)
 
 
-# Net classes (boardsmith turns these into KiCad net classes; widths/clearances in mm).
+# Net classes (boardforge turns these into KiCad net classes; widths/clearances in mm).
 # SKiDL priority: the larger number wins when a net has several classes.
 POWER_NETS = {"+5V", "VBUS", "VBUS_F", "+1V2", "+3V3_ADC", "+3V3A", "-3V3A", "FT_VCORE", "FT_VPHY",
               "VCCPLL0", "VCCPLL1", "GNDPLL0", "GNDPLL1", "CP_OUT", "BUCK_SW", "GND", "+3V3"}
@@ -739,7 +739,7 @@ def assign_netclasses(circuit):
 
 
 def build():
-    """Entry point for boardsmith ([design] top = "build")."""
+    """Entry point for boardforge ([design] top = "build")."""
     import builtins
 
     dual_adc_usb()

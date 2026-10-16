@@ -1,35 +1,39 @@
-# boardsmith
+# boardforge
 
 Generate and analyze KiCad designs from a requirements prompt: explore many candidate
 architectures, then turn the selected one into a routed, manufacturable board. SKiDL code is
 the source of truth; runs headless (KiCad only for viewing/editing results).
 
+This project was called **boardsmith** until 2026-10-16; the name is taken on PyPI by an
+unrelated tool. An old `boardsmith.toml` is still read (with a warning), and old
+`constraints.json` files keep working.
+
 **Status:** the physical pipeline (C1–C6: SKiDL → schematic → board → placement → routing →
 checks → fab outputs) and the review gate (B4) work. The detail stage's agents are a Claude
-Code plugin ([`plugin/`](plugin/README.md)), not yet run end to end. The explore stage is not
+Code plugin ([`plugin/`](plugin/README.md)), run end to end twice on the dual-ADC design. The explore stage is not
 started. Design: [`docsrc/design.md`](docsrc/design.md).
 
 ## Install (development)
 ```bash
 uv pip install -e .            # or: pip install -e .
-boardsmith doctor              # finds KiCad 10, its Python, Freerouting
+boardforge doctor              # finds KiCad 10, its Python, Freerouting
 ```
 Needs KiCad 10 (kicad-cli and its Python), Freerouting (optional; the built-in A* router
 works alone on small boards), and a SKiDL with `.kicad_symdir` support (currently SKiDL's
-`boardsmith` branch). Machine-specific paths can go in `~/.config/boardsmith/config.toml`,
+`boardforge` branch). Machine-specific paths can go in `~/.config/boardforge/config.toml`,
 using the same `[kicad]` and `[routing.freerouting]` keys as a project file.
 
 ## Use
-A project is a directory with a SKiDL file and a `boardsmith.toml`:
+A project is a directory with a SKiDL file and a `boardforge.toml`:
 ```bash
 cd test/examples/tiny
-boardsmith run                 # C1..C6 -> build/
-boardsmith run --from c4       # rerun from routing
-boardsmith route               # one stage: sch | board | place | route | check | fab
-boardsmith status
-boardsmith render --side both  # build/renders/*.svg/png of the current board
-boardsmith review              # B4: constraints.json against the design (after C1)
-boardsmith datasheets sync     # part-fact cache: datasheet PDFs and extractions
+boardforge run                 # C1..C6 -> build/
+boardforge run --from c4       # rerun from routing
+boardforge route               # one stage: sch | board | place | route | check | fab
+boardforge status
+boardforge render --side both  # build/renders/*.svg/png of the current board
+boardforge review              # B4: constraints.json against the design (after C1)
+boardforge datasheets sync     # part-fact cache: datasheet PDFs and extractions
 ```
 C3 places multi-pin parts next to what they connect to (through up to three series
 passives), and warns when a connector's signal reaches its first IC from more than
@@ -48,14 +52,14 @@ cell, ratsnest crossings) and, with compaction, the sizes it tried (`reports/com
 - Net classes: `NetClass("Power", track_width=0.3, clearance=0.15, priority=2)` and
   `net.netclasses = power` (not `net.netclass`, which does nothing). Keys are KiCad's
   `.kicad_pro` names; in SKiDL the larger `priority` wins.
-- Don't set `lib_search_paths`; boardsmith points SKiDL at KiCad 10's libraries.
+- Don't set `lib_search_paths`; boardforge points SKiDL at KiCad 10's libraries.
 - Expose a function that builds the circuit and name it in `[design] top`, or build it at
   import time. `[design] file` may also be a package directory (`circuits/<name>/` with
   `__main__.py`); it runs as a module, so relative imports work. The project directory and
   its `symbols/` are on SKiDL's library path.
 
-### boardsmith.toml
-See `src/boardsmith/config.py` for every key and its default. The main ones:
+### boardforge.toml
+See `src/boardforge/config.py` for every key and its default. The main ones:
 ```toml
 [design]
 file = "tiny.py"
@@ -111,14 +115,14 @@ preroute = ["USB_DP", "USB_DM"]
 [checks.rail_currents]         # regulator loads (A) for the thermal check, overriding
 "+1V2" = 0.05                  # constraints.json rail_current; else kicad-happy guesses
 ```
-Net names in the config are SKiDL names; boardsmith maps them to KiCad's.
+Net names in the config are SKiDL names; boardforge maps them to KiCad's.
 
 ### Review gate (B4)
-`boardsmith review` checks `constraints.json` (project root) against the design after C1 and
+`boardforge review` checks `constraints.json` (project root) against the design after C1 and
 writes `build/reports/review.json`: PASS / FAIL / NOT CHECKED per constraint. A HARD failure
 fails the gate; SOFT and ASSUMED failures, and anything not checked, warn.
 ```json
-{"schema": "boardsmith-constraints", "version": 1, "constraints": [
+{"schema": "boardforge-constraints", "version": 1, "constraints": [
   {"id": "ALIAS-A", "kind": "ac_gain", "tag": "ASSUMED", "why": "content at Nyquist 40 dB down",
    "in": "VIN_A", "out": ["AIN_AP", "AIN_AN"], "at_hz": 5e6, "ref_hz": 1e3, "max_db": -40}]}
 ```
@@ -150,16 +154,16 @@ footprint's body variant.
 Datasheet PDFs and their structured extractions, in kicad-happy's layout
 (`datasheets/manifest.json`, `<MPN>.pdf`, `extracted/<MPN>.json`), kept twice: in the project
 (`datasheets/`, what the analyzers and `review` read) and in a cache shared by all projects
-(`~/.cache/boardsmith/datasheets/`). Parts are the netlist's `MPN` fields; ICs, diodes and
+(`~/.cache/boardforge/datasheets/`). Parts are the netlist's `MPN` fields; ICs, diodes and
 crystals by default (`prefixes`).
 ```bash
-boardsmith datasheets status   # per part: PDF, extraction, quality, staleness, in the cache
-boardsmith datasheets sync     # copy from the shared cache, then find missing PDFs
-boardsmith datasheets add MPN FILE_OR_URL   # one PDF, after checking it names the part
-boardsmith datasheets check MPN...  # validate extractions, fill derived fields, score
-boardsmith datasheets show MPN...   # markdown summary of extractions
-boardsmith datasheets paths    # kicad-happy's extraction prompts, schemas, examples
-boardsmith datasheets publish  # copy the project's extractions to the shared cache
+boardforge datasheets status   # per part: PDF, extraction, quality, staleness, in the cache
+boardforge datasheets sync     # copy from the shared cache, then find missing PDFs
+boardforge datasheets add MPN FILE_OR_URL   # one PDF, after checking it names the part
+boardforge datasheets check MPN...  # validate extractions, fill derived fields, score
+boardforge datasheets show MPN...   # markdown summary of extractions
+boardforge datasheets paths    # kicad-happy's extraction prompts, schemas, examples
+boardforge datasheets publish  # copy the project's extractions to the shared cache
 ```
 Before there is a netlist, the parts come from the sourced BOM CSV.
 A PDF is kept only if its text names the part; a scanned one needs `add --force` after a
@@ -175,12 +179,12 @@ keeps a shared entry unless the project's is newer and scores no lower (`--force
 ```toml
 [datasheets]
 search = ["~/datasheets"]
-cache = "~/.cache/boardsmith/datasheets"   # "" = no shared cache
+cache = "~/.cache/boardforge/datasheets"   # "" = no shared cache
 ```
 
 ## Layout
 ```
-src/boardsmith/         package
+src/boardforge/         package
   physical.py           C1-C6 orchestration
   pcb/                  board scripts run under KiCad's Python (all pcbnew code is here)
   routers/              router interface: Freerouting (Specctra), A*
@@ -197,6 +201,6 @@ Tests: `pytest -m "not kicad"` for the fast ones; `pytest` also runs the tiny de
 end to end (about a minute).
 
 ## Third-party code
-`src/boardsmith/vendor/` contains code from other projects, each under its own license.
-See [`src/boardsmith/vendor/README.md`](src/boardsmith/vendor/README.md). The plugin is
+`src/boardforge/vendor/` contains code from other projects, each under its own license.
+See [`src/boardforge/vendor/README.md`](src/boardforge/vendor/README.md). The plugin is
 adapted from skidl-skills (MIT): [`plugin/ATTRIBUTION.md`](plugin/ATTRIBUTION.md).

@@ -1,14 +1,14 @@
 {
-  "name": "boardsmith",
-  "description": "boardsmith: SKiDL circuit to routed, manufacturable KiCad board",
+  "name": "boardforge",
+  "description": "boardforge: SKiDL circuit to routed, manufacturable KiCad board",
   "owner": {
     "name": "Dave Vandenbout",
     "email": "dave@vdb.name"
   },
   "plugins": [
     {
-      "name": "boardsmith",
-      "description": "Agentic circuit design with SKiDL and boardsmith, from requirements to a routed KiCad board.",
+      "name": "boardforge",
+      "description": "Agentic circuit design with SKiDL and boardforge, from requirements to a routed KiCad board.",
       "version": "0.1.0",
       "source": "./plugin",
       "author": {

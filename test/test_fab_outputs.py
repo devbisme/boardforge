@@ -1,8 +1,8 @@
 """Fab-output corrections: LCSC numbers on ranged BOM lines, DFM tier against the fab tier."""
 
-from boardsmith import fabs
-from boardsmith.analysis import dfm_for_fab
-from boardsmith.fabs.base import read_csv
+from boardforge import fabs
+from boardforge.analysis import dfm_for_fab
+from boardforge.fabs.base import read_csv
 
 KBOM = '''"Reference","Value","Footprint","MPN","Manufacturer","LCSC","Quantity","DNP"
 "C1,C7-C9","1uF","Capacitor_SMD:C_0402_1005Metric","CL05A105KA5NQNC","","C52923","4",""

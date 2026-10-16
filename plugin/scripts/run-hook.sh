@@ -10,7 +10,7 @@
 # cache (or a stale one) it falls back to whatever `python3` is on PATH.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
-CACHE="${TMPDIR:-/tmp}/boardsmith-plugin/python"
+CACHE="${TMPDIR:-/tmp}/boardforge-plugin/python"
 PY="python3"
 if [ -r "$CACHE" ]; then
     CANDIDATE="$(cat "$CACHE")"

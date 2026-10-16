@@ -1,9 +1,9 @@
 ---
 name: erc-rules
 description: >-
-  Interprets SKiDL and KiCad ERC output from `boardsmith sch`, classifies errors vs
+  Interprets SKiDL and KiCad ERC output from `boardforge sch`, classifies errors vs
   warnings, and provides concrete fix patterns (pin conflicts, floating pins, undriven
-  power pins, decoupling, NC usage). Use when running `boardsmith sch`, reviewing ERC
+  power pins, decoupling, NC usage). Use when running `boardforge sch`, reviewing ERC
   results, fixing ERC errors, or performing any design review that includes electrical
   rule checking.
 ---
@@ -12,10 +12,10 @@ description: >-
 
 ## Where the messages are
 
-`boardsmith sch` runs two ERCs and prints both counts:
+`boardforge sch` runs two ERCs and prints both counts:
 - **SKiDL ERC** on the circuit: messages in `build/reports/skidl.log`.
-- **KiCad ERC** on the schematic boardsmith generates: `build/reports/erc.json`
-  (`by_type`, `error_items`). `lib_symbol_mismatch` warnings are expected (boardsmith's
+- **KiCad ERC** on the schematic boardforge generates: `build/reports/erc.json`
+  (`by_type`, `error_items`). `lib_symbol_mismatch` warnings are expected (boardforge's
   project-local library tables) — ignore them. `power_pin_not_driven` errors mean a supply
   reaches a power input only through a connector or passive: add
   `Part('power', 'PWR_FLAG')[1] += net`.
@@ -54,7 +54,7 @@ U1['NC1', 'NC2'] += NC
 erc_assert("expected open-drain", net)
 ```
 
-**ERC run pattern:** `boardsmith sch` from the project root — the design file needs no
+**ERC run pattern:** `boardforge sch` from the project root — the design file needs no
 `ERC()` call of its own.
 
 ## Output

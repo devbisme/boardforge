@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Stop hook — warn when circuit code changed this session and `boardsmith sch` hasn't run
+"""Stop hook — warn when circuit code changed this session and `boardforge sch` hasn't run
 since (or its last run failed or found ERC errors).
 
 Warns when BOTH hold:
   * a `circuits/**/*.py` file was modified this session (after the marker that
     `session-start.sh` writes), and
   * C1 hasn't verified it: build/netlist.json is older than the newest circuit file, or
-    boardsmith's last C1 run (build/pipeline_state.json) failed or reported ERC errors.
+    boardforge's last C1 run (build/pipeline_state.json) failed or reported ERC errors.
 
 A session that never touched circuit code is left alone: no circuit exists before stage 5.
 
@@ -22,13 +22,13 @@ import os
 import sys
 from pathlib import Path
 
-WARNING = ("Circuit code changed but `boardsmith sch` hasn't verified it (or found ERC errors). "
-           "Run `boardsmith sch` and `boardsmith review` before the physical pipeline.")
+WARNING = ("Circuit code changed but `boardforge sch` hasn't verified it (or found ERC errors). "
+           "Run `boardforge sch` and `boardforge review` before the physical pipeline.")
 
 
 def marker_path(session_id: str) -> Path:
     # Same rule as session-start.sh (`${TMPDIR:-/tmp}`).
-    return Path(os.environ.get("TMPDIR") or "/tmp") / "boardsmith-plugin" / f"{session_id}.start"
+    return Path(os.environ.get("TMPDIR") or "/tmp") / "boardforge-plugin" / f"{session_id}.start"
 
 
 def main() -> int:

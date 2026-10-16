@@ -1,6 +1,6 @@
 """BOM check (ported validate-bom): the sourced BOM CSV against the built design."""
 
-from boardsmith.review import bom_check as bc
+from boardforge.review import bom_check as bc
 
 
 def _nl():

@@ -1,7 +1,7 @@
 ---
 name: design-review
 description: >-
-  Three-angle review of a SKiDL circuit — the boardsmith gates (ERC, SPICE paths, datasheet,
+  Three-angle review of a SKiDL circuit — the boardforge gates (ERC, SPICE paths, datasheet,
   package, BOM, budgets), architecture against requirements, and code quality — aggregated
   into design_review.md with severity-sorted findings and
   fixes. Use before exporting a netlist, after the coder finishes, or when the user asks
@@ -52,7 +52,7 @@ deferred questions and known gaps concentrate there. Check:
 Read `circuits/*.py` and check against `rules/skidl-syntax.md`: `ref`/`value`/`footprint` on
 every part, `@SubCircuit` per functional block with a docstring, `C_DECOUP_*` naming, `NC` on
 intentionally unused pins, UPPERCASE power / camelCase signal nets, `.drive = POWER` on
-supplies, `fields["MPN"]` on every part, no `generate_*` calls (boardsmith writes the outputs).
+supplies, `fields["MPN"]` on every part, no `generate_*` calls (boardforge writes the outputs).
 
 ## 4. Footprints and packages
 

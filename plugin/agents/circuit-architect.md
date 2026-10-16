@@ -57,7 +57,7 @@ Annotate every changed section `<!-- revised: <reason> -->`, overwrite
 | `architecture/design_risks.md` | EMI, power integrity, thermal, layout, timing risks |
 | `constraints.json` | The numeric requirements as checkable constraints (§ below) |
 
-Use the `boardsmith:find-part` skill on your candidate MPNs before recommending one —
+Use the `boardforge:find-part` skill on your candidate MPNs before recommending one —
 real stock and tier data is what makes `ic_selection.md` useful to the sourcer. Choose the
 *right* part, not the first adequate one: compare the candidates on the specs the
 requirements actually constrain, and say in one line why the loser lost.
@@ -65,12 +65,12 @@ requirements actually constrain, and say in one line why the loser lost.
 ## constraints.json — the numbers the review gate will check
 
 Write `constraints.json` (project root) from the requirements' numeric `[HARD]`/`[SOFT]`
-items, once your net plan has names. `boardsmith review` checks every entry against the
+items, once your net plan has names. `boardforge review` checks every entry against the
 built design — by simulation, not by reading code — so a constraint here is a requirement
 nobody downstream can quietly break.
 
 ```json
-{"schema": "boardsmith-constraints", "version": 1, "constraints": [
+{"schema": "boardforge-constraints", "version": 1, "constraints": [
   {"id": "RANGE-A", "kind": "ac_gain", "tag": "HARD", "why": "±10 V must fit the ADC's 2 Vpp input",
    "in": "VIN_A", "out": ["AIN_AP", "AIN_AN"], "at_hz": 1e3, "min_db": -21.0, "max_db": -19.8},
   {"id": "ALIAS-A", "kind": "ac_gain", "tag": "HARD", "why": "Nyquist content ≥40 dB down",
@@ -164,7 +164,7 @@ Section content specific to this phase:
   MP2315: 60 nA Iq meets the [HARD] 10 µA sleep budget"). That reason is what tells the
   sourcer which substitutions are safe; a bare MPN tells it nothing.
   Also the board's copper layer count (2 or 4, with the reason: plane needs, BGA/QFN
-  escape, impedance); the driver writes it into `boardsmith.toml`.
+  escape, impedance); the driver writes it into `boardforge.toml`.
 - **Next phase must** — which parts are critical-path, which are freely substitutable,
   which packages are fixed by thermal or layout needs, which have a vetted second source.
 - **Carried forward** — requirement questions you resolved yourself and how; risks from

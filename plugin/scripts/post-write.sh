@@ -7,7 +7,7 @@ set -uo pipefail
 # Interpreter resolved once by session-start.sh; avoids a version-manager shim's
 # ~0.5 s start-up on each of the three Python calls below. Falls back to PATH.
 PY="python3"
-CACHE="${TMPDIR:-/tmp}/boardsmith-plugin/python"
+CACHE="${TMPDIR:-/tmp}/boardforge-plugin/python"
 [ -r "$CACHE" ] && [ -x "$(cat "$CACHE")" ] && PY="$(cat "$CACHE")"
 
 INPUT=$(cat)
@@ -32,7 +32,7 @@ if [[ "$FILE_PATH" =~ circuits/.*\.py$ ]]; then
 
     echo "✓ $FILE_PATH syntax OK"
 
-    # Footprint strings must resolve (KiCad's libraries + boardsmith.toml [libraries.footprints])
+    # Footprint strings must resolve (KiCad's libraries + boardforge.toml [libraries.footprints])
     VALIDATE_SCRIPT="$(dirname "$0")/validate-footprints.py"
     if [ -f "$VALIDATE_SCRIPT" ]; then
         if ! FP_RESULT=$("$PY" "$VALIDATE_SCRIPT" "$FILE_PATH" 2>&1); then

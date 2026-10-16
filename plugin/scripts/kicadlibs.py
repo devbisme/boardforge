@@ -1,10 +1,10 @@
 """Where the KiCad libraries are, for the plugin's lookup scripts (a module, not a tool).
 
-boardsmith finds KiCad 10 itself; this asks it once (`boardsmith doctor`) and caches the
-answer per machine in ${TMPDIR:-/tmp}/boardsmith-plugin/kicad_dirs.json, so hooks that run
+boardforge finds KiCad 10 itself; this asks it once (`boardforge doctor`) and caches the
+answer per machine in ${TMPDIR:-/tmp}/boardforge-plugin/kicad_dirs.json, so hooks that run
 on every Write stay fast. $KICAD10_SYMBOL_DIR / $KICAD10_FOOTPRINT_DIR override it.
 Project libraries come from the project's own directories: symbols/ and the
-[libraries.footprints] table of boardsmith.toml.
+[libraries.footprints] table of boardforge.toml.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import os
 import subprocess
 from pathlib import Path
 
-CACHE = Path(os.environ.get("TMPDIR") or "/tmp") / "boardsmith-plugin" / "kicad_dirs.json"
+CACHE = Path(os.environ.get("TMPDIR") or "/tmp") / "boardforge-plugin" / "kicad_dirs.json"
 
 
 def kicad_dirs(refresh: bool = False) -> dict:
@@ -26,7 +26,7 @@ def kicad_dirs(refresh: bool = False) -> dict:
             found = {}
     if not found:
         try:
-            out = subprocess.run(["boardsmith", "doctor"], capture_output=True, text=True,
+            out = subprocess.run(["boardforge", "doctor"], capture_output=True, text=True,
                                  timeout=60, cwd=os.environ.get("TMPDIR") or "/tmp").stdout
         except (OSError, subprocess.TimeoutExpired):
             out = ""
@@ -49,11 +49,11 @@ def kicad_dirs(refresh: bool = False) -> dict:
 
 
 def project_footprint_libs(root: Path | None = None) -> dict[str, Path]:
-    """{nickname: .pretty dir} from boardsmith.toml [libraries.footprints], plus any
+    """{nickname: .pretty dir} from boardforge.toml [libraries.footprints], plus any
     footprints/<Lib>.pretty not listed there (reported, so it can be added)."""
     root = root or Path.cwd()
     libs: dict[str, Path] = {}
-    toml = root / "boardsmith.toml"
+    toml = root / "boardforge.toml"
     if toml.is_file():
         try:
             import tomllib

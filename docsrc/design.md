@@ -1,10 +1,10 @@
-# boardsmith — design doc (draft for review)
+# boardforge — design doc (draft for review)
 
 Status: **approved 2026-10-12; build-order steps 1–2 implemented** (see §7 and §4.8).
 Written 2026-10-11 from the runs in
 [ai-circuit-design-tests](https://github.com/devbisme/ai-circuit-design-tests) (local: `~/projects/AI/ai-circuit-design-tests`).
 All run paths below are relative to that repo.
-Name: **boardsmith**.
+Name: **boardforge**.
 
 ## 1. Goal
 
@@ -156,7 +156,7 @@ None of the tested tools did this, so this stage is the least proven.
 
   The output is a Pareto table (`candidates.md`).
   - **Default (decided 2026-10-11):** the run stops here so you can pick a candidate. To pick
-    one later, run `boardsmith select <id>`; the run then continues from `pipeline_state.json`.
+    one later, run `boardforge select <id>`; the run then continues from `pipeline_state.json`.
   - In autonomous mode (`--auto`), it auto-selects using weights from the prompt and records
     why it chose that candidate.
 
@@ -169,7 +169,7 @@ candidates should cost far less than detailing one. *Estimate, unverified.*
   reviewer), handoff files, `validate-bom.py`, and Sonnet subagents for the mechanical work.
 - **Part-fact cache:** use kicad-happy's `datasheets/` skill (§4.7), not a new one. It already
   extracts pin tables, ratings, operating conditions and application circuits into per-MPN
-  JSON, with schemas, scoring and validation. boardsmith only adds a cross-project location
+  JSON, with schemas, scoring and validation. boardforge only adds a cross-project location
   for the cache, which is checked before any fetch.
   - Your tests turned the cache off so runs would be independent. In the tool it should be
     on by default, with a `--fresh` switch.
@@ -192,7 +192,7 @@ candidates should cost far less than detailing one. *Estimate, unverified.*
      specs with the connections: voltage violations, missing external parts, decoupling.
   3. The independent reviewer agent, with fresh context and datasheets.
   4. A **SPICE check of every analog block** against `constraints.json` (filter attenuation,
-     headroom), using kicad-happy's spice scripts. The pass/fail limits come from boardsmith's
+     headroom), using kicad-happy's spice scripts. The pass/fail limits come from boardforge's
      constraints; kicad-happy alone only checks that a circuit is internally consistent
      (§4.7).
   5. Budget recheck with the real parts.
@@ -207,7 +207,7 @@ eda-agent, kcaa and Konnect. Turn it into a package with tests.
 - **C1:** schematizer in labels-only mode, then kicad-cli netlist, then pin-for-pin compare.
   - **Decided (2026-10-11):** the schematic is written by **schematizer** in a new
     **labels-only mode**. There is no separate writer package. schematizer is already a
-    PyPI package that reads the same JSON, so boardsmith lists it as a dependency and it
+    PyPI package that reads the same JSON, so boardforge lists it as a dependency and it
     installs automatically.
   - Labels-only mode differs from schematizer's normal mode in three ways:
     1. Every net is stubbed, so each pin gets a power symbol, a global or local label, or a
@@ -219,7 +219,7 @@ eda-agent, kcaa and Konnect. Turn it into a package with tests.
     paths and 910 ERC violations. The cause hasn't been found and is probably in code shared
     with normal mode. The rules and fixes in kicad-happy run 2's `scripts/sch_writer.py`
     (0 ERC errors, exact netlist match) are the reference.
-  - The **netlist-match check stays in boardsmith**, not schematizer. It needs `kicad-cli`, and
+  - The **netlist-match check stays in boardforge**, not schematizer. It needs `kicad-cli`, and
     schematizer has no KiCad dependency. The check exports a netlist with kicad-cli and
     compares it to the JSON `nets`.
   - The input is the **`skidl-generic-netlist` v1 JSON** produced by
@@ -284,7 +284,7 @@ eda-agent, kcaa and Konnect. Turn it into a package with tests.
      larger area or a different swap. This loop runs without the LLM.
 - **C5:** kicad-cli DRC `--schematic-parity` with the fab profile rules, then schematic↔PCB
   geometry checks with kicad-happy `cross_verify.py` / `cross_analysis.py`: diff-pair length,
-  decoupling placement, power trace width, bus skew, thermal vias. boardsmith adds only what
+  decoupling placement, power trace width, bus skew, thermal vias. boardforge adds only what
   those miss:
   - decap distance per IC pin, with a hard threshold. On the Konnect board, kicad-happy run 1
     didn't report the 5–22 mm decaps that the eda-agent and kcaa geometry scripts found;
@@ -301,7 +301,7 @@ eda-agent, kcaa and Konnect. Turn it into a package with tests.
   - Gerber zip with fab layers only, checked with kicad-happy `analyze_gerbers.py`;
   - BOM and pick-and-place in the fab's formats, from the fab adapter. For JLCPCB, it uses
     kicad-happy `translate_bom_pnp.py`: LCSC numbers, pick-and-place in mm. That script passes
-    rotations through unchanged, so boardsmith adds the per-footprint rotation offsets
+    rotations through unchanged, so boardforge adds the per-footprint rotation offsets
     (*a gap* in every run);
   - fiducials, test points on key rails and signals, silkscreen cleanup;
   - 3D renders and a schematic PDF;
@@ -312,7 +312,7 @@ eda-agent, kcaa and Konnect. Turn it into a package with tests.
 ### 4.4 Packaging and install
 
 - **One Python package** (`uv tool install` / pip):
-  - a CLI that runs each stage, or the whole pipeline (`boardsmith run --auto`);
+  - a CLI that runs each stage, or the whole pipeline (`boardforge run --auto`);
   - library code for the scripts.
 - **A Claude Code plugin** (skills + agents + script hooks) that drives the LLM stages and
   calls the CLI. An optional **small MCP server** exposes the same coarse steps for other
@@ -320,15 +320,15 @@ eda-agent, kcaa and Konnect. Turn it into a package with tests.
 - **External dependencies:**
   - KiCad 10 (kicad-cli + its Python);
   - SKiDL;
-  - Freerouting (bundled binary, fetched by `boardsmith setup`);
+  - Freerouting (bundled binary, fetched by `boardforge setup`);
   - ngspice (optional);
-  - kicad-happy scripts: **vendored** in `src/boardsmith/vendor/kicad_happy/` (MIT; version
+  - kicad-happy scripts: **vendored** in `src/boardforge/vendor/kicad_happy/` (MIT; version
     2.3.1, commit `0684046`; unmodified; attribution in `VENDORED.md`). A few validators need
     the optional `jsonschema` package.
   - Note: the scripts from kicad-happy **run 2** (`sch_writer.py`, `build_pcb.py`,
     `fanout.py`, `astar_fix.py`, …) aren't kicad-happy code. Claude wrote them during your
     test session, so they're yours to reuse directly.
-- `boardsmith doctor` checks the environment against the pitfalls these tests kept hitting:
+- `boardforge doctor` checks the environment against the pitfalls these tests kept hitting:
   - KiCad 9 vs. 10 kicad-cli;
   - the `KICAD_SYMBOL_DIR` override;
   - stale global `sym-lib-table` (use project-local tables);
@@ -337,7 +337,7 @@ eda-agent, kcaa and Konnect. Turn it into a package with tests.
 ### 4.5 Fab adapters (decided 2026-10-11: JLCPCB only at first, others easy to add)
 
 Everything that depends on the fab sits behind one interface, so the rest of the pipeline
-never names a fab. Adding a fab means adding one directory, `boardsmith/fabs/<fab>/`:
+never names a fab. Adding a fab means adding one directory, `boardforge/fabs/<fab>/`:
 
 - **`profile.toml`** (data; TOML rather than YAML because Python's standard library reads
   it, including the KiCad Python that the board scripts run under, which has no PyYAML):
@@ -368,9 +368,9 @@ chosen fab.
 ### 4.6 Router interface (decided 2026-10-11: Freerouting default, other routers pluggable)
 
 Like the fab adapters (§4.5), each router plugs in through one interface, so the rest of the
-pipeline never names a router. Routers live in `boardsmith/routers/<name>.py`.
+pipeline never names a router. Routers live in `boardforge/routers/<name>.py`.
 
-- **`RouteJob`** (router-neutral input, built by boardsmith):
+- **`RouteJob`** (router-neutral input, built by boardforge):
   - path to a scratch copy of the board (prerouted and fanned-out items are locked);
   - which nets to route, and which to skip or treat as plane-connected;
   - layer roles: signal, plane, or avoid;
@@ -386,7 +386,7 @@ pipeline never names a router. Routers live in `boardsmith/routers/<name>.py`.
   - `capabilities()`: which features the router supports, among planes, diff pairs, length
     matching, incremental routing and multithreading. The pipeline uses this to decide what
     to do itself, e.g. it does the plane fanout when the router can't use planes.
-  - `available()`: a dependency check, which `boardsmith doctor` uses.
+  - `available()`: a dependency check, which `boardforge doctor` uses.
   - `route(job) -> RouteResult`.
 - **Specctra base class:** a router that reads DSN and writes SES only has to supply its
   command line. The base class handles DSN export, plane handling, the SES merge (keeping
@@ -401,16 +401,16 @@ pipeline never names a router. Routers live in `boardsmith/routers/<name>.py`.
   - `astar`: the internal grid A* router with rip-up. It's the finisher, and works as a main
     router for small boards.
 - **Possible later implementations** (not evaluated): other Specctra-capable routers, cloud
-  routers with an API, or a native boardsmith router.
+  routers with an API, or a native boardforge router.
 
 ### 4.7 kicad-happy integration
 
 kicad-happy (MIT, by Andrew Klofas) is **vendored**: a frozen copy of its files lives in
-`src/boardsmith/vendor/kicad_happy/` with its license and a `VENDORED.md` that records the
+`src/boardforge/vendor/kicad_happy/` with its license and a `VENDORED.md` that records the
 source commit. It isn't installed as a separate dependency, for three reasons:
 - It isn't a Python package (no `pyproject.toml`); it's a Claude Code plugin of scripts run by
   path, so pip couldn't install it automatically.
-- A vendored copy is pinned and ships with boardsmith.
+- A vendored copy is pinned and ships with boardforge.
 - Installing it as a plugin would also register its 11 skills with Claude. Their triggers
   overlap other skills (kicad-happy `setup.md`), so Claude might run them unprompted and
   spend tokens.
@@ -418,7 +418,7 @@ source commit. It isn't installed as a separate dependency, for three reasons:
 The cost of vendoring is that updates are manual: copy the new upstream tree over the old one,
 then update `VENDORED.md`.
 
-**Comparison with boardsmith's own components**
+**Comparison with boardforge's own components**
 
 kicad-happy is better at what it already does:
 - datasheet extraction and caching;
@@ -429,23 +429,23 @@ kicad-happy is better at what it already does:
 Ties: JLCPCB BOM/CPL formatting (neither applies rotation offsets) and datasheet downloads
 (both failed on FTDI and analog.com in the runs).
 
-boardsmith's advantage is that it has data kicad-happy can only infer:
+boardforge's advantage is that it has data kicad-happy can only infer:
 - **Connectivity from the source.** kicad-happy works out connections by parsing KiCad files
   with heuristics, which caused false positives (run 2, PP-001: a filter resistor not treated
-  as a DC path). boardsmith has the SKiDL netlist plus the kicad-cli match check.
+  as a DC path). boardforge has the SKiDL netlist plus the kicad-cli match check.
 - **Pass/fail against requirements.** On the Konnect board, kicad-happy reported 36 of 36 SPICE
-  subcircuits passing while the anti-alias filter was far too weak for 12 bits. boardsmith's
+  subcircuits passing while the anti-alias filter was far too weak for 12 bits. boardforge's
   `constraints.json` provides the limits.
 - **Real operating data.** Per-rail currents from the power budget fix the thermal false
   positives (run 2: TS-001/002 at 121–132 °C).
 
-So boardsmith mostly **feeds kicad-happy better inputs** rather than replacing it.
+So boardforge mostly **feeds kicad-happy better inputs** rather than replacing it.
 
 **Analysis-step registry (how to override kicad-happy components)**
 
 Each analysis step is a registry entry, following the same pattern as the fab adapters (§4.5)
 and router interface (§4.6). Its default implementation is a vendored kicad-happy script run as
-a subprocess, and boardsmith can replace any entry with its own implementation.
+a subprocess, and boardforge can replace any entry with its own implementation.
 - The scripts communicate through JSON files with a documented schema
   (`skills/kicad/references/output-schema.md`). Downstream consumers (`fab_release_gate.py`,
   `diff_analysis.py`, `cross_analysis.py`) only read that JSON. So a replacement only has to
@@ -454,11 +454,11 @@ a subprocess, and boardsmith can replace any entry with its own implementation.
   directory first on `sys.path`, so replacing a function inside one would mean patching the
   vendored files. `VENDORED.md` forbids that, except as a recorded local patch.
 - Config chooses an implementation per step, e.g. `thermal: kicad_happy` or
-  `thermal: boardsmith`.
+  `thermal: boardforge`.
 
 **Components used, by stage**
 
-| kicad-happy component | Where boardsmith uses it |
+| kicad-happy component | Where boardforge uses it |
 |---|---|
 | `datasheets/` (extraction, cache, scoring) | B1 part-fact cache |
 | `datasheets/datasheet_verify.py` | B4 review gate |
@@ -468,7 +468,7 @@ a subprocess, and boardsmith can replace any entry with its own implementation.
 | `kicad/cross_verify.py`, `cross_analysis.py` | C5 geometry checks |
 | `kicad/analyze_pcb.py`, `emc/`, `analyze_thermal.py` | C5 |
 | `kicad/analyze_gerbers.py` | C6 Gerber check |
-| `bom/translate_bom_pnp.py` | JLCPCB `bom()` / `cpl()` (plus boardsmith rotation offsets) |
+| `bom/translate_bom_pnp.py` | JLCPCB `bom()` / `cpl()` (plus boardforge rotation offsets) |
 | `kicad/fab_release_gate.py` | C6 final gate |
 
 **Deferred (cheap to add later)**
@@ -494,12 +494,12 @@ a subprocess, and boardsmith can replace any entry with its own implementation.
 
 ### 4.8 Implementation notes (build-order steps 1–2, 2026-10-13)
 
-**Step 1** (SKiDL and schematizer) is committed on each repo's `boardsmith` branch: SKiDL
-`c7a52b85`, schematizer `ca39a8e`. Neither is pushed or released, so boardsmith currently needs
+**Step 1** (SKiDL and schematizer) is committed on each repo's `boardforge` branch: SKiDL
+`c7a52b85`, schematizer `ca39a8e`. Neither is pushed or released, so boardforge currently needs
 both installed from those branches. The dual-ADC design reaches 0 ERC errors and an exact
 netlist match (172 of 172 nets).
 
-**Step 2** (C1–C6 plus the analysis-step registry) is in `src/boardsmith/`. Test projects:
+**Step 2** (C1–C6 plus the analysis-step registry) is in `src/boardforge/`. Test projects:
 `test/examples/tiny` (runs end to end in pytest, about a minute) and
 `test/examples/dual_adc_usb` (kicad-happy run 2's SKiDL file and floorplan).
 
@@ -528,18 +528,18 @@ time; the remaining fix is placement (step 3: floorplan and FPGA pin swap).
 FAIL after the gate fix below (rerun of C6).
 
 **Where the implementation differs from §4.3–4.7**
-- Config is `boardsmith.toml` in the project directory, merged over defaults and an optional
-  `~/.config/boardsmith/config.toml` for machine paths (KiCad, Freerouting). Fab profiles
+- Config is `boardforge.toml` in the project directory, merged over defaults and an optional
+  `~/.config/boardforge/config.toml` for machine paths (KiCad, Freerouting). Fab profiles
   are TOML too (§4.5). Net names in config are SKiDL names; C1 writes the SKiDL→KiCad map.
 - The floorplan is not an LLM step yet: `[[placement.anchor]]` entries fix the main parts
   (run 2's anchor table), and C3 is run 2's placer with its design-specific tables moved into
   config. The placement upgrade is step 3.
 - Each board stage saves a snapshot (`build/work/built.kicad_pcb`, `placed.kicad_pcb`), so any
-  stage can be rerun (`boardsmith run --from c4`). A lock file allows one run per build
+  stage can be rerun (`boardforge run --from c4`). A lock file allows one run per build
   directory.
 - C1 runs SKiDL in a subprocess started in `build/work/`, because SKiDL opens its `.log` and
   `.erc` files in the current directory when it is imported.
-- Stable UUIDs (`boardsmith/pcbfile.py`): KiCad saves footprints, tracks and vias sorted by
+- Stable UUIDs (`boardforge/pcbfile.py`): KiCad saves footprints, tracks and vias sorted by
   UUID, and new items get random ones, so the file order changed on every run. That changed
   C3's placement (30–33 parts on the bottom side across runs 5–9) and the order of the
   locked fanout wires in Freerouting's input. C2 (footprints, from the reference) and C4
@@ -557,7 +557,7 @@ FAIL after the gate fix below (rerun of C6).
   - Freerouting's narrowing is off (`routing.freerouting.neckdown`). It has two mechanisms:
     neck-down at pins (0.075 mm tracks at 0.5 mm-pitch pads; widening them afterwards caused
     clearance errors) and retrying failed connections at `neck_width_um` (default 0.1 mm),
-    which boardsmith sets to the default track width. It still thins some wires near pins to
+    which boardforge sets to the default track width. It still thins some wires near pins to
     0.75–0.9 of their width, so the board's minimum track width and clearance are the
     smallest values a net class uses, never the fab's lower limits. DRC then flags thinned
     copper and the A* finisher repairs it. The chain goes on to the finisher whenever a
@@ -578,12 +578,12 @@ FAIL after the gate fix below (rerun of C6).
     board from before cleanup and warns.
   - The placement feedback loop (§4.3 C4 step 6) only grows the board when its size was
     estimated (`routing.grow_retries`); with a fixed size it reports the unrouted count.
-- C5 thermal: `[checks.rail_currents]` declares regulator loads. boardsmith patches them into
+- C5 thermal: `[checks.rail_currents]` declares regulator loads. boardforge patches them into
   a copy of the schematic analysis (LDO dissipation, switcher loss, power-budget loads) that
   the thermal and cross-verify steps read. kicad-happy otherwise estimates LDO load from output
   capacitance (about 0.2 A for 20 µF), which caused run 2's TS-001/002 false positives. A
   power budget from the detail stage should fill this table later.
-- C6 release gate: boardsmith gives `fab_release_gate.py` a copy of the PCB analysis with
+- C6 release gate: boardforge gives `fab_release_gate.py` a copy of the PCB analysis with
   two corrections; the vendored files stay unmodified.
   - The footprint count leaves out board-only footprints (fiducials, mounting holes), which
     have no schematic symbol.
@@ -600,7 +600,7 @@ FAIL after the gate fix below (rerun of C6).
 - Pin swap and compaction (step 3).
 - FPGA constraint file and test points (C6).
 - The digital-traces-over-AFE check (C5).
-- `boardsmith setup` fetching Freerouting (step 6); for now `doctor` finds an installed copy.
+- `boardforge setup` fetching Freerouting (step 6); for now `doctor` finds an installed copy.
 - Diff pairs: `RouteJob.diff_pairs` exists but the pipeline doesn't fill it and no router
   uses it. The USB pair is prerouted by A* as two separate nets of the same width, not as a
   coupled pair at a target impedance.
@@ -614,9 +614,9 @@ FAIL after the gate fix below (rerun of C6).
 ### 4.9 Step 3: placement upgrade (decided 2026-10-13)
 
 Decisions:
-- **Floorplan:** `[[placement.region]]` entries in `boardsmith.toml` (sheet or value regex →
-  rectangle, optional board edge). A person or the agent driving boardsmith writes them;
-  boardsmith makes no LLM calls, so runs stay repeatable. Anchors stay for exact positions.
+- **Floorplan:** `[[placement.region]]` entries in `boardforge.toml` (sheet or value regex →
+  rectangle, optional board edge). A person or the agent driving boardforge writes them;
+  boardforge makes no LLM calls, so runs stay repeatable. Anchors stay for exact positions.
 - **Pin swap:** `[[placement.pin_swap]]` names the part, its swappable pin groups and each
   group's partner part. C3 writes `{SKiDL net: pin}` to a JSON file that the SKiDL design
   reads (as `dual_adc_usb.py` already did), and when the map changes, C1–C3 run again once.
@@ -706,7 +706,7 @@ regions config isn't kept in the repo: it would share the design's `fpga_pinmap.
 
 Freerouting 2.4.1 reads `gui.enabled` from `~/.config/freerouting/freerouting.json`; with it
 on and a display present, the CLI routed, exited 0 and left an empty session file on the
-dual-ADC board (the tiny board still saved), leaving A* the whole board. boardsmith now
+dual-ADC board (the tiny board still saved), leaving A* the whole board. boardforge now
 passes `--gui.enabled=false` and reports an empty session file as a router failure.
 
 **Congestion calibration** (`max_util`). The regions floorplan above (USB-B no longer tied
@@ -783,31 +783,31 @@ design to confirm them.
 ### 4.10 Step 4 (Detail): decisions and plan
 
 Decided 2026-10-14:
-- **Agents run as a Claude Code plugin; deterministic work is CLI.** boardsmith ships the
+- **Agents run as a Claude Code plugin; deterministic work is CLI.** boardforge ships the
   ported skidl-skills agents (MIT, Nick Kraakman; copied with attribution like kicad-happy)
   and the `/new-circuit`-style driver as plugin content. Every check the agents need is a
-  `boardsmith` command, so the gates behave the same with or without an agent.
+  `boardforge` command, so the gates behave the same with or without an agent.
 - **Gates first, agents second** (bottom-up), each tested on the dual-ADC design.
 - **`constraints.json` gets a minimal versioned schema now**; Explore (step 5) extends it.
 
 Gates, in build order:
 1. **`constraints.json` v1** (project root):
-   `{"schema": "boardsmith-constraints", "version": 1, "constraints": [...]}`, each entry
+   `{"schema": "boardforge-constraints", "version": 1, "constraints": [...]}`, each entry
    `{id, kind, tag: HARD|SOFT|ASSUMED, why, ...kind fields}`. Kinds in v1:
    - `ac_gain`: `in` net, `out` net or `[p, n]` pair, `at_hz`, `min_db`/`max_db`, optional
      `ref_hz` (gain relative to that frequency). Covers anti-alias attenuation at Nyquist.
    - `rail_current`: `net`, `max_a` (replaces `[checks.rail_currents]` over time).
    Unknown kinds are reported as not checked, not as errors.
-2. **SPICE path gate** (`boardsmith review`, check `spice`): an ngspice testbench of the
+2. **SPICE path gate** (`boardforge review`, check `spice`): an ngspice testbench of the
    whole path, built from the SKiDL netlist (exact connectivity, not re-parsed KiCad files):
    every R, C and L as itself, rails as DC sources, the `in` net driven by an AC source,
    op-amps from kicad-happy's behavioral model generator, a small behavioral model for
    fully-differential amplifiers. Model specs (GBW, slew, swing) come from the part-fact
-   cache when it has them, else `[review.models]` in boardsmith.toml, else the gate reports
+   cache when it has them, else `[review.models]` in boardforge.toml, else the gate reports
    the part as unmodelled. kicad-happy's per-subcircuit simulation stays as an analyzer.
-3. **Part-fact cache** (`boardsmith datasheets status|sync|publish`): kicad-happy's
+3. **Part-fact cache** (`boardforge datasheets status|sync|publish`): kicad-happy's
    cache layout under `<project>/datasheets/`, plus a cross-project cache
-   (`~/.cache/boardsmith/datasheets/`, `[datasheets] cache`). `sync` fills the project from
+   (`~/.cache/boardforge/datasheets/`, `[datasheets] cache`). `sync` fills the project from
    it (`--fresh` skips it), then runs the PDF fallbacks (local `search` directories, the
    symbol's datasheet URL, LCSC); `publish` copies new extractions back. Extraction itself
    is LLM work (the librarian agent, following kicad-happy's dispatch recipe).
@@ -821,10 +821,10 @@ Gates, in build order:
 6. **Budget recheck**: `rail_current` constraints against the regulator's rated output
    current from the cache.
 
-`boardsmith review` writes `reports/review.json` with PASS/FAIL/NOT CHECKED per check and
+`boardforge review` writes `reports/review.json` with PASS/FAIL/NOT CHECKED per check and
 per constraint; HARD failures fail the gate, SOFT ones warn.
 
-**Gates 1–2 done (2026-10-14).** `boardsmith review`, `src/boardsmith/review/`. On the dual-ADC
+**Gates 1–2 done (2026-10-14).** `boardforge review`, `src/boardforge/review/`. On the dual-ADC
 design (`test/examples/dual_adc_usb/constraints.json`; op-amp GBWs typed into
 `[review.models]`; the THS4521's was from memory and wrong, fixed with gate 3):
 
@@ -840,7 +840,7 @@ rejection at 5–10 MHz is modest"). The testbench checks: an RC corner lands at
 an FDA (Rf = Rg) gives 0 dB. Two bugs found on the way: `+3V3A` and `-3V3A` sanitised to the
 same SPICE node, and the netlist spells pin types `POWER-IN`, so no rails were detected.
 
-**Gate 3 done (2026-10-14).** `src/boardsmith/datasheets.py`, `boardsmith datasheets`. The
+**Gate 3 done (2026-10-14).** `src/boardforge/datasheets.py`, `boardforge datasheets`. The
 project copy lives at `<project>/datasheets/` and is linked to `build/datasheets` before the
 analyzers run, where kicad-happy's `analyze_schematic` and `datasheet_verify` look. On the
 dual-ADC design (19 ICs, diodes and crystals with MPNs):
@@ -851,7 +851,7 @@ dual-ADC design (19 ICs, diodes and crystals with MPNs):
   - LCSC's search is fuzzy: it returned an op-amp sheet for the ABM8 crystal, a DC/DC
     module for the FT2232HL, a crimp connector for the LTC2291 and terminal blocks for the
     LEDs. kicad-happy's fetcher checks the PDF against the part LCSC found, not the one asked
-    for, so these passed it. boardsmith now discards a download whose first pages don't name
+    for, so these passed it. boardforge now discards a download whose first pages don't name
     the part's core number (letters then digits: AP2112, FT2232, 93LC56); this rejected all 9
     wrong PDFs and passed the 8 right ones (1 scanned PDF can't be checked and is kept).
 - One extraction made by hand (OPA810IDR, the librarian agent's job) passes kicad-happy's
@@ -862,11 +862,11 @@ dual-ADC design (19 ICs, diodes and crystals with MPNs):
   the datasheets found the THS4521's wrong: 145 MHz is its G = 1 bandwidth; its GBW is 93 MHz
   at 3.3 V. ALIAS-A/B move from −3.4 to −3.49 dB.
 
-**Gate 4 done (2026-10-14).** `src/boardsmith/review/datasheet_check.py`. Not a wrapper of
+**Gate 4 done (2026-10-14).** `src/boardforge/review/datasheet_check.py`. Not a wrapper of
 kicad-happy's `datasheet_verify` as planned: on v1.4 extractions that can only check each
 pin's net voltage to ground (wrong for split supplies: an op-amp on ±3.3 V sees 6.6 V), and
 its external-component and decoupling checks need fields v1.4 doesn't have. It still runs in
-C5. The boardsmith check, per part with an extraction:
+C5. The boardforge check, per part with an extraction:
 - supply span (highest supply-pin rail minus lowest, ground 0 V) per `power_domain`, or the
   part's one supply key: over absolute max is an error, outside recommended a warning;
 - a datasheet power-input pin unconnected is an error; on a signal net a warning (datasheets
@@ -880,7 +880,7 @@ the parts with no extraction. Dual-ADC, with 6 extractions made by hand from the
 4.75–27 V; U4 VIN 5 V within 2.7–5.5 V); 13 parts not covered. With the THS4521's VS− moved
 to −3V3A and the LP5907's input disconnected, both fail as HARD errors.
 
-**Gate 5 done (2026-10-14).** `src/boardsmith/review/package_check.py`. Footprints are read
+**Gate 5 done (2026-10-14).** `src/boardforge/review/package_check.py`. Footprints are read
 from the fp-lib-table C1 wrote (the libraries the design was built with), else from KiCad's
 stock directory plus `[libraries] footprints`.
 - `PKG:pins`, every part with a footprint: a symbol pin on a net with no pad of the same number
@@ -896,7 +896,7 @@ Dual-ADC: 26 of 26 footprints found, all pins have pads, the 6 extracted parts m
 U1 (SOT-23-5) on SOIC-8, U4 (WSON-12) on SOT-23-6 and U5 (SOT-23-6) on SOT-23, all fail
 HARD: pad count, pitch, thermal pad, and the unpadded pins named.
 
-**Gate 6 done (2026-10-14).** `src/boardsmith/review/budget.py`. A `rail_current` constraint's
+**Gate 6 done (2026-10-14).** `src/boardforge/review/budget.py`. A `rail_current` constraint's
 `max_a` is the rail's load. Its source is the one part with a power-output pin on the net
 (from the extraction's pinout, else the symbol's pin types; PWR_FLAGs excluded), directly or
 behind one series L/FB part (a buck's SW pin). The load is compared with the source's
@@ -913,27 +913,27 @@ current as load on the rail that feeds it.
 
 **Agents ported (2026-10-14).** `plugin/`: skidl-skills' 7 agents, 4 skills, rules and hooks
 (MIT, Nick Kraakman, commit `82cf010`; `plugin/ATTRIBUTION.md` lists every change) as a
-Claude Code plugin named `boardsmith`, plus a marketplace manifest at the repo root. Decided
+Claude Code plugin named `boardforge`, plus a marketplace manifest at the repo root. Decided
 with the user:
 - The librarian writes **both** the kicad-happy extraction (what the gates read) and
   `<MPN>_SUMMARY.md` (what coders read). The summary's tables are pasted from
-  `boardsmith datasheets show`, generated from the extraction, so the two can't disagree;
+  `boardforge datasheets show`, generated from the extraction, so the two can't disagree;
   only the load-bearing facts and notes are hand-written. It writes one extraction per part
   itself, following kicad-happy's prompts, not the scout → plan → per-task-subagent recipe:
   a sub-agent can't spawn sub-agents, and one-pass extraction worked for the six by hand.
-- After coding, phase 6 is the reviewer running `boardsmith sch` and `boardsmith review`,
+- After coding, phase 6 is the reviewer running `boardforge sch` and `boardforge review`,
   doing only the checklist items no gate covers, and routing each failure to its owner;
-  phase 7 runs `boardsmith run --from c2` from the driver.
+  phase 7 runs `boardforge run --from c2` from the driver.
 - Checks moved into the CLI: `validate-bom.py` became review's `BOM` result
   (`review/bom_check.py`, its helpers copied unchanged); `fetch-datasheet.py`/`part-cache.py`
   became `datasheets sync|add|publish`. Lookup tools stay plugin scripts (`stock-check`,
   `find-symbol`, `pdf-table`, `generate-footprint`, `validate-footprints`), the last two
-  adapted to KiCad 10's `.kicad_symdir` libraries and boardsmith's library locations.
+  adapted to KiCad 10's `.kicad_symdir` libraries and boardforge's library locations.
 - Hooks ported: the Bash guard protects `datasheets/ circuits/ sourcing/ symbols/
   footprints/` (not `build/`); the stop hook warns when circuit code changed since C1's
   last clean run.
 
-boardsmith changes the port needed:
+boardforge changes the port needed:
 - `[design] file` may be a package directory (`circuits/<name>/`), run as a module; the
   project and its `symbols/` are on SKiDL's library path; `[libraries.footprints]` paths
   are project-relative.
@@ -943,7 +943,7 @@ boardsmith changes the port needed:
 - `PKG:pins` also warns about numbered pads with no symbol pin (a floating exposed pad).
 - `constraints.json` is written by the architect (phase 2), since entries need net names.
 - The driver's state file is `design_state.json`; `build/pipeline_state.json` stays
-  boardsmith's.
+  boardforge's.
 
 Tested: plugin and marketplace manifests validate (`claude plugin validate`); Claude Code
 loads 7 agents, 4 skills, 4 hooks (~1.3 k tokens always-on). Each hook script, the two
@@ -977,7 +977,7 @@ fixed:
 - **Fine-pitch parts needed a hand-set 0.10 mm clearance**, which the release gate then
   reported as a costlier fab tier. A per-footprint clearance override was tried first: DRC
   accepted it, but traces escaping the FPGA still needed 0.15 mm and three of its pins
-  didn't route. Now boardsmith lowers the board clearance to the finest-pitch footprint's
+  didn't route. Now boardforge lowers the board clearance to the finest-pitch footprint's
   pad gap, down to the fab-tier minimum, once before C2, for every stage and router. The
   fab-tier fix below keeps that within JLCPCB's 4-layer standard tier.
 - **The release gate's DFM tier used kicad-happy's 1–2 layer limits.** DFM findings are now
@@ -1004,7 +1004,7 @@ designed against 72 dB at fs/2 and gives 81.8 dB. $30.55. Fixed afterwards:
 - the package check accepts a pitch along either pad axis (4-pad oscillators);
 - C2 marks DNP parts DNP on the board, excluded from BOM and position files;
 - netlist.json is sorted, because SKiDL builds sheets and pins from sets;
-- new `boardsmith render` for checking placement (an older `kicad-cli` on PATH couldn't
+- new `boardforge render` for checking placement (an older `kicad-cli` on PATH couldn't
   read the board).
 
 Left as notes:
@@ -1071,14 +1071,14 @@ then add the new ones.
 
 ## 8. Open questions for you
 
-1. ~~Name and location~~ — decided: `boardsmith`, its own repo.
+1. ~~Name and location~~ — decided: `boardforge`, its own repo.
 2. ~~Where the schematic writer lives~~ — decided: a labels-only mode in schematizer, which
-   is a boardsmith dependency. The netlist-match check lives in boardsmith.
+   is a boardforge dependency. The netlist-match check lives in boardforge.
 3. ~~Selection gate~~ — decided: stop after A3 for your pick; `--auto` auto-selects.
 4. ~~Fab target~~ — decided: JLCPCB only for now, behind a fab-adapter interface (§4.5) so
    others are easy to add.
 5. ~~kicad-happy~~ — decided and done: MIT-licensed, vendored unmodified with attribution
-   (`src/boardsmith/vendor/kicad_happy/`).
+   (`src/boardforge/vendor/kicad_happy/`).
 6. ~~Freerouting~~ — decided: keep it as the default main router, behind a router
    interface (§4.6) so other routers can be swapped in.
 

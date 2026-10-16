@@ -59,7 +59,7 @@ skidl-skills test runs 4–7, over 95 % of tokens were those re-reads, and outpu
 
 - **Batch independent reads and checks into one tool call** — one Bash call that runs five
   `grep`s costs one turn; five calls cost five turns, each re-reading everything.
-- **Prefer commands and scripts to doing lookups by hand** — `boardsmith datasheets
+- **Prefer commands and scripts to doing lookups by hand** — `boardforge datasheets
   status|sync|add|check|show`, and `stock-check.py`, `find-symbol.py`, `pdf-table.py` in
   `${CLAUDE_PLUGIN_ROOT}/scripts/`. Each replaces dozens of turns with one.
 - **Read PDFs as text first**: `pdftotext -layout -f N -l N`, then `grep` the result. For
@@ -154,7 +154,7 @@ and resume with `/new-circuit`.
    it is a command, it costs no tokens, and it is not the sub-agent's word for anything:
 
    ```
-   boardsmith sch && boardsmith review
+   boardforge sch && boardforge review
    ```
 
    A `BOM` result other than PASS is a gate failure. Route it to whoever owns the disagreeing side — a

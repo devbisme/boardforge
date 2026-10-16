@@ -1,11 +1,11 @@
 ---
-description: Phase 7 — boardsmith.toml board, placement and rules settings, and how to read the physical pipeline's results
+description: Phase 7 — boardforge.toml board, placement and rules settings, and how to read the physical pipeline's results
 alwaysApply: false
 ---
 
 # Physical pipeline (phase 7)
 
-`boardsmith run --from c2` turns the reviewed design into a board:
+`boardforge run --from c2` turns the reviewed design into a board:
 
 | Stage | Does |
 |---|---|
@@ -15,12 +15,12 @@ alwaysApply: false
 | C5 | checks: DRC, geometry, analyses |
 | C6 | fab outputs |
 
-`boardsmith status` gives one line per stage. Each summary is in `build/pipeline_state.json`
+`boardforge status` gives one line per stage. Each summary is in `build/pipeline_state.json`
 and the details are in `build/reports/`. Routing a board of about 180 parts takes 10–45
-minutes, so get placement right before routing: `boardsmith run --from c2 --to c3` takes
+minutes, so get placement right before routing: `boardforge run --from c2 --to c3` takes
 seconds.
 
-Everything below goes in `boardsmith.toml`. Positions are mm from the board's top-left
+Everything below goes in `boardforge.toml`. Positions are mm from the board's top-left
 corner. Net names are SKiDL names.
 
 ## Before the first run: a floorplan from the architecture
@@ -66,7 +66,7 @@ rot = 0
   `area = [x0, y0, x1, y1]` fractions) confine a whole block, such as the analog section or
   the power supplies, to part of the board.
 - **Fine-pitch parts need nothing.** When a footprint's pads are closer than
-  `[rules] clearance` (a 0.4 mm-pitch QFN at 0.10 mm), boardsmith lowers the board
+  `[rules] clearance` (a 0.4 mm-pitch QFN at 0.10 mm), boardforge lowers the board
   clearance to that gap, down to the fab tier's minimum, and says so in C2. Traces escaping
   those pins need it. The fab check judges spacing against the board's own fab tier
   (JLCPCB 4-layer: 0.09 mm), so this doesn't move the board into a costlier tier.
@@ -84,14 +84,14 @@ The C3 summary and its warnings show:
 - **"N placement cells need more routing than they have":** congestion
   (`reports/congestion.json`). Spread the anchors or enlarge the board.
 
-To see the placement before routing, run `boardsmith render` (`--side both` adds the
+To see the placement before routing, run `boardforge render` (`--side both` adds the
 mirrored bottom). It writes `build/renders/top.svg` and `.png`, tracks visible and pours
-left out, using boardsmith's own KiCad: a `kicad-cli` on PATH may be too old to read the
+left out, using boardforge's own KiCad: a `kicad-cli` on PATH may be too old to read the
 board. Look at the PNG.
 
 ## After routing
 
-- **C4:** `unrouted` must be 0. If the board size was estimated, boardsmith grows it and
+- **C4:** `unrouted` must be 0. If the board size was estimated, boardforge grows it and
   retries by itself.
 - **C5:**
   - DRC `errors` must be 0. Group the errors in `reports/drc.json` by type and part; they
@@ -103,5 +103,5 @@ board. Look at the PNG.
   - The fab files are in `build/fab/`. `lines_without_lcsc` counts BOM lines JLCPCB can't
     place: those parts need an `LCSC` field in the code.
 
-Change `boardsmith.toml`, never circuit code, in phase 7. A defect that needs a circuit
+Change `boardforge.toml`, never circuit code, in phase 7. A defect that needs a circuit
 change goes back to the user.

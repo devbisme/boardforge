@@ -1,5 +1,5 @@
 {
- "schema": "boardsmith-constraints",
+ "schema": "boardforge-constraints",
  "version": 1,
  "constraints": [
   {"id": "RANGE-A", "kind": "ac_gain", "tag": "HARD",

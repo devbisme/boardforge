@@ -88,7 +88,7 @@ worth naming in your next work order to that agent — not something to absorb s
      `partial`): re-invoke the same agent once — *"Your handoff failed the gate: \<specific
      failure\>. Fix only the handoff file — do not redo the phase work."* Fails twice → halt
      and report. Never write another agent's handoff content yourself.
-   - **From the coding phase onward, gate item 5 runs `boardsmith sch && boardsmith review`
+   - **From the coding phase onward, gate item 5 runs `boardforge sch && boardforge review`
      yourself.** It is a command; it costs nothing and it is not the agent's word for
      anything. A `BOM` result other than PASS routes to whichever side is wrong — a bad cell
      to `part-sourcer`, a bad part in the code to that block's coder. Decide which side is
@@ -106,10 +106,10 @@ worth naming in your next work order to that agent — not something to absorb s
 
    Never run `/clear` yourself, and never advance a stage in the same message.
 
-## After phase 2 — `boardsmith.toml`
+## After phase 2 — `boardforge.toml`
 
-Once the architecture is approved, write `boardsmith.toml`: the librarian's
-`boardsmith datasheets` commands and the coders' `boardsmith sch` need it. Take the values
+Once the architecture is approved, write `boardforge.toml`: the librarian's
+`boardforge datasheets` commands and the coders' `boardforge sch` need it. Take the values
 from the handoffs, not from artifacts:
 
 ```toml
@@ -121,7 +121,7 @@ title = "<one-line title from SPEC.md>"
 layers = <layer count from 02_architecture.md ## Decisions, else 4>
 ```
 
-Everything else has a boardsmith default; board size, planes and placement anchors are
+Everything else has a boardforge default; board size, planes and placement anchors are
 phase 7's business. The circuit file doesn't exist yet — that's fine. Record `design_file`
 in `design_state.json`.
 
@@ -274,19 +274,19 @@ After the user approves the phase 6 result. Settings, and what each summary line
 `rules/physical.md` — read it first.
 
 1. **Floorplan.** Write the board size, layers, planes, pours and `[[placement.anchor]]`
-   entries into `boardsmith.toml` from the architecture's signal flow: every connector on
+   entries into `boardforge.toml` from the architecture's signal flow: every connector on
    its edge with `facing`, the keystone ICs in signal-flow order, and each input's first
    amplifier beside its connector.
-2. **Place and look.** Run `boardsmith run --from c2 --to c3` (seconds). Fix anything C3
+2. **Place and look.** Run `boardforge run --from c2 --to c3` (seconds). Fix anything C3
    warns about (unplaced parts, a connector path over 25 mm, congestion), and render the
    placement once to check it by eye. Repeat until C3 is clean.
-3. **Route.** Run `boardsmith run --from c4` **in the background** (`run_in_background:
+3. **Route.** Run `boardforge run --from c4` **in the background** (`run_in_background:
    true`); routing takes 10–45 minutes. Don't poll — its exit re-invokes you.
-4. Read `boardsmith status` and, only for a stage that warned or failed, the report it names
+4. Read `boardforge status` and, only for a stage that warned or failed, the report it names
    under `build/reports/`. Record `physical_status` in `design_state.json`.
 5. Report: board size and layers, routed or not, DRC errors, release-gate verdict,
    `lines_without_lcsc`, and where the fab outputs are (`build/fab/`). A problem here is a
-   `boardsmith.toml` setting or a design defect the gates missed: describe it and ask the
+   `boardforge.toml` setting or a design defect the gates missed: describe it and ask the
    user how to proceed; don't edit circuit code in phase 7.
 
 ## design_state.json
@@ -304,5 +304,5 @@ say:
   agents; if not, wait out the remainder rather than asking the user.
 - Each `block_manifest` entry: `block_id`, `block_name`, `filename`, `interface_nets`,
   `parts`, `status` (`pending|in_progress|syntax_ok|erc_fail|done`), `erc_errors_attributed`.
-- `review_status` is copied from `build/reports/review.json` and the `boardsmith sch`
-  summary after each phase 6 run; `boardsmith` itself never writes `design_state.json`.
+- `review_status` is copied from `build/reports/review.json` and the `boardforge sch`
+  summary after each phase 6 run; `boardforge` itself never writes `design_state.json`.

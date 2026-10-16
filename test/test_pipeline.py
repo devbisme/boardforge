@@ -10,9 +10,9 @@ import shutil
 
 import pytest
 
-from boardsmith import routers
-from boardsmith.config import Project
-from boardsmith.kicad import Kicad, KicadError
+from boardforge import routers
+from boardforge.config import Project
+from boardforge.kicad import Kicad, KicadError
 
 HERE = os.path.dirname(__file__)
 
@@ -32,10 +32,10 @@ pytestmark = [pytest.mark.kicad, pytest.mark.slow,
 
 @pytest.fixture(scope="module")
 def tiny(tmp_path_factory):
-    from boardsmith.physical import Pipeline
+    from boardforge.physical import Pipeline
 
     d = tmp_path_factory.mktemp("tiny")
-    for f in ("tiny.py", "boardsmith.toml"):
+    for f in ("tiny.py", "boardforge.toml"):
         shutil.copy(os.path.join(HERE, "examples", "tiny", f), d)
     proj = Project.load(str(d))
     if not routers.get("freerouting").available(proj.cfg)[0]:
@@ -120,7 +120,7 @@ def test_fab_outputs(tiny):
 
 def test_rerun_one_stage(tiny):
     """A stage can be rerun alone: C4 starts from C3's snapshot, not its own output."""
-    from boardsmith.physical import Pipeline
+    from boardforge.physical import Pipeline
 
     proj, first = tiny
     pipe = Pipeline(proj, KICAD)
@@ -132,7 +132,7 @@ def test_rerun_one_stage(tiny):
 def test_package_design_c1(tmp_path):
     """A modular design (circuits/<name>/ with __main__.py and relative imports) runs as a
     module, and the MPN field reaches the netlist (the plugin's coding layout)."""
-    from boardsmith.physical import Pipeline
+    from boardforge.physical import Pipeline
 
     pkg = tmp_path / "circuits" / "tiny_mod"
     pkg.mkdir(parents=True)
@@ -152,8 +152,8 @@ def test_package_design_c1(tmp_path):
         "footprint='Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical')\n"
         "j[1, 2, 3] += VIN, V33, GND\n"
         "for n in (VIN, GND):\n    Part('power', 'PWR_FLAG')[1] += n\n"
-        "if __name__ == '__main__':\n    raise SystemExit('boardsmith must not run this')\n")
-    (tmp_path / "boardsmith.toml").write_text('[design]\nfile = "circuits/tiny_mod"\n')
+        "if __name__ == '__main__':\n    raise SystemExit('boardforge must not run this')\n")
+    (tmp_path / "boardforge.toml").write_text('[design]\nfile = "circuits/tiny_mod"\n')
     pipe = Pipeline(Project.load(str(tmp_path)))
     (res,) = pipe.run(("c1",))
     assert res["status"] in ("done", "warn"), res

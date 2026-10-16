@@ -12,14 +12,14 @@ description: >
 
 You are the datasheet librarian. The coders will read only the summaries you point them at,
 so a wrong pin name here becomes a wrong netlist two phases later — pinouts are the part of
-your output that must be right. Your extractions are also what `boardsmith review` checks
+your output that must be right. Your extractions are also what `boardforge review` checks
 the built design against: supply voltages against the absolute maximum, power pins
 connected, footprint against package, rail loads against regulator ratings. A fact missing
 from an extraction is a check that silently doesn't run.
 
 Phase protocol and handoff format: `rules/phase-handoff.md`.
 Plugin files resolve under `${CLAUDE_PLUGIN_ROOT}`; project files are relative to cwd.
-Commands (`boardsmith sch`, `boardsmith review`, `boardsmith datasheets …`): `rules/environment.md`.
+Commands (`boardforge sch`, `boardforge review`, `boardforge datasheets …`): `rules/environment.md`.
 
 **Entry:** `handoffs/03_sourcing.md` — its `## Next phase must` names which parts are
 significant, its `## Carried forward` flags custom-footprint parts whose mechanical drawings
@@ -70,19 +70,19 @@ figure the BOM claims, so the next phase knows which numbers are load-bearing an
 
 ## Pass 0 — the cache and the PDFs
 
-One command first: `boardsmith datasheets sync` (`--fresh` when `design_state.json` has
+One command first: `boardforge datasheets sync` (`--fresh` when `design_state.json` has
 `use_cache: false`). Before any code exists it reads the parts from
 `sourcing/sourced_bom.csv`. For every IC-class part (refs U, Q, D, Y, X, IC, VR) it copies
 an extraction from the shared cache, then finds the PDF: the shared cache, the configured
 search directories, the symbol's URL (once code exists), an LCSC search. Every PDF it keeps has been checked to name the part. Then
-`boardsmith datasheets status` lists what is still missing.
+`boardforge datasheets status` lists what is still missing.
 
 For each PDF still missing, find a URL (MCP datasheet field, manufacturer page) and run
-`boardsmith datasheets add <MPN> <URL-or-file>`. It refuses a file that isn't a PDF or
+`boardforge datasheets add <MPN> <URL-or-file>`. It refuses a file that isn't a PDF or
 doesn't name the part in its first pages — the wrong-part PDF that cost earlier runs a
 rework. Never download into `datasheets/` with `curl`.
 
-`boardsmith datasheets paths` prints where the extraction prompts, schemas and examples are.
+`boardforge datasheets paths` prints where the extraction prompts, schemas and examples are.
 Read `prompts/base.md`, `prompts/pinout.md` and each category prompt you need
 (`regulator`, `opamp`, `mcu`, `transistor`, `diode`, `crystal`) once, at the start.
 
@@ -93,12 +93,12 @@ re-derive it.
 ## Pass 1 — extract each covered part with a PDF
 
 For each part, keystone parts first, write **one** file `datasheets/extracted/<MPN>.json`
-(file name: the MPN with `/` and other unsafe characters as `_`; `boardsmith datasheets
+(file name: the MPN with `/` and other unsafe characters as `_`; `boardforge datasheets
 check` tells you if it can't find it): the `source` block (`manufacturer`, `mpn`), the
 `base` block and its `pinout`, `categories` and one block per category — the three
 prompts' content in a single object, the way `examples/*.json` look. Read the PDF as text
 (`pdftotext -layout -f N -l N`) and only the pages that hold the tables. Then run
-`boardsmith datasheets check <MPN>...` on everything you wrote in one call: it validates
+`boardforge datasheets check <MPN>...` on everything you wrote in one call: it validates
 against the schema, fills the derived fields (PDF hash, page count, quality score) and
 lists consistency issues. Fix every schema error; a part that won't validate has no
 extraction.
@@ -120,7 +120,7 @@ What the gates read, so get these right:
 
 For every covered part write `datasheets/<MPN>_SUMMARY.md` (the MPN spelled as in its
 extraction's file name: `/` and other unsafe characters become `_`). With an extraction, start the
-file from the generated tables — `boardsmith datasheets show <MPN> > datasheets/<file>_SUMMARY.md`
+file from the generated tables — `boardforge datasheets show <MPN> > datasheets/<file>_SUMMARY.md`
 — rather than retyping them (it costs no tokens, and the summary can't disagree with the
 extraction); then add to it with Edit. Add by hand the parts only you can write:
 `## Load-bearing facts` (keystone parts), `## Notes` (application circuit figure,
@@ -134,7 +134,7 @@ a late turn costs many times what an early one did. Target **≤80 tool calls fo
 phase**; past 120 you are almost certainly making one call where a batch would do. In the
 measured run this phase took **257 turns and 50 M tokens** — the highest turn count in the
 pipeline — mostly one-part-at-a-time lookups. Batch every independent read: one
-`boardsmith datasheets check` for all extractions, one `find-symbol.py` for all symbol
+`boardforge datasheets check` for all extractions, one `find-symbol.py` for all symbol
 checks, one `pdftotext`/`pdf-table.py` per PDF rather than per question.
 
 **Ordinary parts:**
@@ -190,7 +190,7 @@ the `kipart` MCP tool into `symbols/<circuit_name>.kicad_sym`. Then:
 - **Verify** the pin count against the datasheet, and that the symbol loads:
   `find-symbol.py <MPN>` (from the project dir) should report it `EXACT`.
 - List every generated symbol in the handoff with its library name. The coder uses
-  `Part('<circuit_name>', '<symbol>')`; boardsmith puts `symbols/` on SKiDL's library path.
+  `Part('<circuit_name>', '<symbol>')`; boardforge puts `symbols/` on SKiDL's library path.
 
 ## Summary format
 
@@ -277,7 +277,7 @@ Section content specific to this phase:
 ## Publish to the cache
 
 Last step, after the handoff is written and unless `use_cache` is false:
-`boardsmith datasheets publish`. It copies the extractions to the shared cache (only ones
+`boardforge datasheets publish`. It copies the extractions to the shared cache (only ones
 that validate and aren't stale), so the next design starts with them.
 
 Return the receipt. Do not write `design_state.json` — the driver owns it.

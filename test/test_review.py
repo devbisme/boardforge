@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from boardsmith.review import constraints as cons
-from boardsmith.review import spice_path as sp
-from boardsmith.units import si
+from boardforge.review import constraints as cons
+from boardforge.review import spice_path as sp
+from boardforge.units import si
 
 NGSPICE = sp.find_ngspice()
 needs_ngspice = pytest.mark.skipif(not NGSPICE, reason="ngspice not found")
@@ -24,7 +24,7 @@ def test_si_values():
 
 def test_constraints_validation(tmp_path):
     f = tmp_path / "constraints.json"
-    f.write_text(json.dumps({"schema": "boardsmith-constraints", "version": 1, "constraints": [
+    f.write_text(json.dumps({"schema": "boardforge-constraints", "version": 1, "constraints": [
         {"id": "A", "kind": "ac_gain", "in": "X", "out": "Y", "at_hz": 1e3, "max_db": 0},
         {"id": "A", "kind": "ac_gain", "tag": "MAYBE", "in": "X", "at_hz": 1e3},
         {"id": "C", "kind": "thd"}]}))
@@ -111,11 +111,11 @@ def test_opamp_follower_and_fda(tmp_path):
 
 @needs_ngspice
 def test_gate_status_and_report(tmp_path):
-    from boardsmith.config import Project
-    from boardsmith.review.gate import review
+    from boardforge.config import Project
+    from boardforge.review.gate import review
 
     (tmp_path / "d.py").write_text("")
-    (tmp_path / "boardsmith.toml").write_text('[design]\nfile = "d.py"\n')
+    (tmp_path / "boardforge.toml").write_text('[design]\nfile = "d.py"\n')
     proj = Project.load(str(tmp_path))
     nl = _netlist([_part("R1", "Device:R", "1k", ["IN", "OUT"]),
                    _part("C1", "Device:C", "159.155nF", ["OUT", "GND"])])
@@ -125,7 +125,7 @@ def test_gate_status_and_report(tmp_path):
 
     def run(*cs):
         (tmp_path / "constraints.json").write_text(json.dumps(
-            {"schema": "boardsmith-constraints", "version": 1, "constraints": list(cs)}))
+            {"schema": "boardforge-constraints", "version": 1, "constraints": list(cs)}))
         return review(proj)
 
     rep = run({**base, "id": "ok", "tag": "HARD", "max_db": -2.9},

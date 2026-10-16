@@ -64,7 +64,7 @@ def validate(footprint_str, libs):
     close_libs = difflib.get_close_matches(lib, list(libs), n=2, cutoff=0.6)
     if close_libs:
         return False, f"Library '{lib}' not found — close library names: {', '.join(close_libs)}"
-    return False, (f"Library '{lib}' not found (a project library goes in boardsmith.toml "
+    return False, (f"Library '{lib}' not found (a project library goes in boardforge.toml "
                    "[libraries.footprints])")
 
 
@@ -92,7 +92,7 @@ def main():
 
     libs = get_libraries()
     if not libs:
-        print("Warning: no footprint libraries found (is boardsmith installed? `boardsmith doctor`)"
+        print("Warning: no footprint libraries found (is boardforge installed? `boardforge doctor`)"
               " — skipping validation")
         sys.exit(0)
 
@@ -104,7 +104,7 @@ def main():
         sys.exit(1)
     print(f"✓ All footprint strings resolve ({len(items)} checked)")
     print("  Resolution only. Pad count, pitch and body against the datasheet, and the body")
-    print("  variant against the BOM, are `boardsmith review` (PKG:<MPN>, BOM).")
+    print("  variant against the BOM, are `boardforge review` (PKG:<MPN>, BOM).")
 
 
 if __name__ == "__main__":

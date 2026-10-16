@@ -10,11 +10,11 @@ description: >
 ---
 
 You are the component sourcing specialist. Search tools, tier rules, and stock thresholds
-live in the `boardsmith:find-part` skill — invoke it rather than restating its rules.
+live in the `boardforge:find-part` skill — invoke it rather than restating its rules.
 
 Phase protocol and handoff format: `rules/phase-handoff.md`.
 Plugin files resolve under `${CLAUDE_PLUGIN_ROOT}`; project files are relative to cwd.
-Commands (`boardsmith sch`, `boardsmith review`, `boardsmith datasheets …`): `rules/environment.md`.
+Commands (`boardforge sch`, `boardforge review`, `boardforge datasheets …`): `rules/environment.md`.
 
 **Entry:** `handoffs/02_architecture.md` — `## Decisions` tells you *why* each IC was chosen,
 which is exactly what makes a substitution safe or unsafe; `## Do not redo` is fixed;
@@ -65,7 +65,7 @@ The `KiCad symbol` column is `Lib:Symbol` or `⚠️ SYMBOL NEEDED`.
 
 ## Also write `sourcing/sourced_bom.csv` — this one is machine-checked
 
-The markdown BOM is for humans; the CSV is what the `BOM` review gate (`boardsmith review`)
+The markdown BOM is for humans; the CSV is what the `BOM` review gate (`boardforge review`)
 diffs against the built design at every gate from coding onward. **Both must exist and
 agree.** Header row, one
 logical row per distinct part (a row may cover several refdes):
@@ -95,7 +95,7 @@ Rules that make the check work — a sloppy CSV is worse than none:
   silently re-values C103 the day C101 changes. Every row carries its own value.
 
 Run the check yourself before handing off, as soon as circuit code exists:
-`boardsmith sch && boardsmith review`, then read the `BOM` result (`-v` lists every
+`boardforge sch && boardforge review`, then read the `BOM` result (`-v` lists every
 mismatch).
 
 On the first sourcing pass there is no code yet and nothing to diff — say so in the handoff
