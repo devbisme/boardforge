@@ -70,6 +70,38 @@ def symbol_pins(netlist):
     return out
 
 
+def symbol_units(netlist):
+    """{lib_id: {unit: {pin number: (name, electrical type)}}} from the embedded symbols."""
+    out = {}
+    for lib_id, sym in netlist.get("symbols", {}).items():
+        units = out.setdefault(lib_id, {})
+        for unit, cmds in sym.get("draw_cmds", {}).items():
+            for c in cmds:
+                if c and c[0] == "pin":
+                    kv = {x[0]: x[1] for x in c if isinstance(x, list) and len(x) > 1}
+                    units.setdefault(str(unit), {})[str(kv.get("number"))] = (kv.get("name", ""), c[1])
+    return out
+
+
+def amp_units(units, all_pins):
+    """[(suffix, pins)]: one entry per amplifier in a part. A multi-unit symbol (a dual
+    op-amp: units A and B, plus a power unit) gives one per unit that has an output, each
+    with the pins of the units that have none (the shared supply pins); anything else gives
+    the whole part. (One model per part left the second half of a dual op-amp, and with it
+    the second filter stage, out of the dual-ADC run-2 testbench.)"""
+    if not units or len(units) < 2:
+        return [("", all_pins)]
+    amps, shared = [], {}
+    for u in sorted(units, key=lambda k: (len(k), k)):
+        names = {(n.upper(), t) for n, t in units[u].values()}
+        has_out = any(role_is_out(n, t) or n in OPAMP_ROLES["outp"] + OPAMP_ROLES["outn"]
+                      for n, t in names)
+        (amps.append(u) if has_out else shared.update(units[u]))
+    if len(amps) < 2:
+        return [("", all_pins)]
+    return [(f"_{chr(ord('A') + i)}", {**shared, **units[u]}) for i, u in enumerate(amps)]
+
+
 def rail_volts(name, dc):
     """DC voltage of a rail net from the overrides or its name (+3V3 -> 3.3, -3V3A -> -3.3,
     +1V2 -> 1.2, +5V -> 5, VBUS -> 5). None if unknown."""
@@ -151,6 +183,7 @@ def testbench(netlist, c, models, dc=None, source_ohms=0.0, facts=None):
     """(spice text, notes, problem). ``problem`` is a reason the path can't be checked."""
     dc, facts = dc or {}, facts or {}
     pins_of = symbol_pins(netlist)
+    units_of = symbol_units(netlist)
     nets = {n["name"]: n for n in netlist["nets"]}
     outs = c["out"] if isinstance(c["out"], list) else [c["out"]]
     for n in [c["in"], *outs]:
@@ -194,31 +227,32 @@ def testbench(netlist, c, models, dc=None, source_ohms=0.0, facts=None):
                 if touches:
                     (unmodelled if comp.get("pins") and len(pn) > 2 else omitted).append(ref)
                 continue
-            roles = _roles(comp, pins_of.get(lib_id, {}), model)
-            # Unless the model says, a part with both differential outputs is an FDA: an
-            # op-amp model would leave its outputs open (a THS4551 with op-amp facts did).
-            kind = model.get("type") or ("fda" if {"outp", "outn"} <= roles.keys() else "opamp")
-            need = FDA_PINS if kind == "fda" else OPAMP_PINS
-            missing = [r for r in need if r not in roles or roles[r] not in pn]
-            if missing:
-                notes.append(f"{ref}: no pin for {missing} (set [review.models] pins); left open")
-                unmodelled.append(ref)
-                continue
-            gbw, aol = float(model["gbw_hz"]), float(model.get("aol_db", 100))
-            sub = re.sub(r"[^A-Za-z0-9_]", "_", f"{kind}_{comp.get('value', ref)}")
-            if sub not in subckts:
-                if kind == "fda":
-                    subckts[sub] = _fda_subckt(sub, gbw, aol)
-                else:
-                    gen = gen or _kh_generator()
-                    text = gen.generate_opamp_model(sub, {"gbw_hz": gbw, "aol_db": aol,
-                                                          "slew_vus": model.get("slew_vus", 100),
-                                                          "rro": model.get("rro", True)})
-                    subckts[sub] = text.replace(f"OPAMP_{gen.sanitize_mpn(sub)}", sub)
-            nodes = " ".join(_node(pn[roles[r]], ground) for r in need)
-            lines.append(f"X{ref} {nodes} {sub}")
-            sig = [pn[roles[r]] for r in need if r not in ("vcc", "vee")]
-            edges += [(a, b) for a in sig for b in sig if a < b]
+            for suffix, upins in amp_units(units_of.get(lib_id), pins_of.get(lib_id, {})):
+                roles = _roles(comp, upins, model)
+                # Unless the model says, a part with both differential outputs is an FDA: an
+                # op-amp model would leave its outputs open (a THS4551 with op-amp facts did).
+                kind = model.get("type") or ("fda" if {"outp", "outn"} <= roles.keys() else "opamp")
+                need = FDA_PINS if kind == "fda" else OPAMP_PINS
+                missing = [r for r in need if r not in roles or roles[r] not in pn]
+                if missing:
+                    notes.append(f"{ref}{suffix}: no pin for {missing} (set [review.models] pins); left open")
+                    unmodelled.append(ref)
+                    continue
+                gbw, aol = float(model["gbw_hz"]), float(model.get("aol_db", 100))
+                sub = re.sub(r"[^A-Za-z0-9_]", "_", f"{kind}_{comp.get('value', ref)}")
+                if sub not in subckts:
+                    if kind == "fda":
+                        subckts[sub] = _fda_subckt(sub, gbw, aol)
+                    else:
+                        gen = gen or _kh_generator()
+                        text = gen.generate_opamp_model(sub, {"gbw_hz": gbw, "aol_db": aol,
+                                                              "slew_vus": model.get("slew_vus", 100),
+                                                              "rro": model.get("rro", True)})
+                        subckts[sub] = text.replace(f"OPAMP_{gen.sanitize_mpn(sub)}", sub)
+                nodes = " ".join(_node(pn[roles[r]], ground) for r in need)
+                lines.append(f"X{ref}{suffix} {nodes} {sub}")
+                sig = [pn[roles[r]] for r in need if r not in ("vcc", "vee")]
+                edges += [(a, b) for a in sig for b in sig if a < b]
     # Reachability through modelled parts, not through rails or ground.
     adj = {}
     for a, b in edges:

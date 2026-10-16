@@ -128,6 +128,18 @@ def pitch(pads, skip):
     return min(v for v, c in counts if c == counts[0][1])
 
 
+def axis_pitches(pads, skip):
+    """The smallest spacing (mm) between pads in the same row and in the same column."""
+    pts = [(x, y) for n, x, y, _ in pads if n not in skip]
+    out = set()
+    for axis in (0, 1):
+        d = [abs(a[axis] - b[axis]) for i, a in enumerate(pts) for b in pts[i + 1:]
+             if abs(a[1 - axis] - b[1 - axis]) < 0.01 and abs(a[axis] - b[axis]) > 0.01]
+        if d:
+            out.add(round(min(d), 2))
+    return out
+
+
 def check_pins(comp, fp):
     """An error for symbol pins on nets with no footprint pad; a warning for numbered pads
     with no symbol pin (no net on the board: an exposed pad left floating, say)."""
@@ -158,8 +170,10 @@ def check_package(ref, lib_id, fp, ex):
                     "detail": f"{ref} {lib_id}: {len(nums)} pads ({len(ep)} exposed), datasheet {code} has {n} pins"})
     want = pkg.get("pitch_mm")
     have = pitch(fp["pads"], ep)
-    # a depopulated package (SOT-23-3) has pads at twice the datasheet's pin pitch
-    if want and have is not None and min(abs(k * want - have) for k in (1, 2)) > PITCH_TOL:
+    # A package can have a pitch along each axis (a 4-pad 3.2 x 2.5 mm oscillator: 2.1 and
+    # 1.65 mm), and a depopulated one (SOT-23-3) pads at twice the pin pitch: any fits.
+    cands = {have} | axis_pitches(fp["pads"], ep) if have is not None else set()
+    if want and cands and min(abs(k * want - c) for k in (1, 2) for c in cands) > PITCH_TOL:
         out.append({"severity": "error", "check": "pitch",
                     "detail": f"{ref} {lib_id}: pad pitch {have:g} mm, datasheet {code} {want:g} mm"})
     tp = pkg.get("thermal_pad")

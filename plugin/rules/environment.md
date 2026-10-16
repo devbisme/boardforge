@@ -29,6 +29,7 @@ All from the project root.
 | `boardsmith datasheets publish` | Copy finished extractions to the shared cache | — |
 | `boardsmith run --from c2 --to c3` | Board setup and placement only (seconds) | C3 warnings; `rules/physical.md` |
 | `boardsmith run --from c4` | Routing, checks, fab outputs (10–45 min) | `build/`; `boardsmith status` |
+| `boardsmith render [--side both]` | Picture of the current board, to check a placement by eye | `build/renders/*.png` |
 
 `boardsmith sch` takes 10–20 s. Its one-line summary gives the SKiDL and KiCad ERC counts and
 whether the netlist round trip matched; read the log only when a count is non-zero.

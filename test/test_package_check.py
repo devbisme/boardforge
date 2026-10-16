@@ -107,3 +107,14 @@ def test_pad_gap(tmp_path):
                  + _pad(3, 0.2, 2, 3, 3) + _pad(3, 0.2, 2.5, 0.5, 0.5))
     assert abs(pc.pad_gap(pc.load_footprint("L:S5", libs)) - 0.8) < 1e-9
     assert abs(pc.pad_gap(pc.load_footprint("L:QFN", libs)) - 0.1) < 1e-9
+
+
+def test_two_axis_pitch(tmp_path):
+    # 4-pad 3.2 x 2.5 mm oscillator: 2.1 mm across, 1.65 mm down; the datasheet gives 2.1
+    xo = _pad(1, -1.05, 0.825, 1.4, 1.2) + _pad(2, 1.05, 0.825, 1.4, 1.2) \
+        + _pad(3, 1.05, -0.825, 1.4, 1.2) + _pad(4, -1.05, -0.825, 1.4, 1.2)
+    fp = pc.load_footprint("L:XO", _libs(tmp_path, XO=xo))
+    assert pc.axis_pitches(fp["pads"], set()) == {2.1, 1.65}
+    ex = _ex(n=4, pitch=2.1, pins=4)
+    assert _sev(pc.check_package("Y1", "L:XO", fp, ex)) == [("info", "package")]
+    assert ("error", "pitch") in _sev(pc.check_package("Y1", "L:XO", fp, _ex(n=4, pitch=1.27, pins=4)))

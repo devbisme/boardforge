@@ -30,6 +30,24 @@ def _lib_path(lib, nick, search):
     return ""
 
 
+def _pin_key(p):
+    n = str(p.get("num", ""))
+    return (p.get("unit") or 0, 0 if n.isdigit() else 1, int(n) if n.isdigit() else 0, n)
+
+
+def stable_order(doc):
+    """Sort what SKiDL builds from sets (sheet list, pins within a part), so unchanged code
+    gives a byte-identical netlist.json and schematic: the dual-ADC run-2 assembler's
+    stability check failed on order alone. (The source is SKiDL's netlist builder; this
+    keeps boardsmith stable whatever SKiDL version is installed.)"""
+    if isinstance(doc.get("sheets"), list):
+        doc["sheets"].sort(key=lambda s: json.dumps(s, sort_keys=True))
+    for c in doc.get("components", []):
+        if isinstance(c.get("pins"), list):
+            c["pins"].sort(key=_pin_key)
+    return doc
+
+
 def run(job):
     import skidl
     from skidl import KICAD10, lib_search_paths
@@ -66,6 +84,7 @@ def run(job):
     ckt.merge_net_names()
     ckt.merge_nets()
     doc = build_generic_netlist(ckt, title=job.get("title", ""), top_name=job["name"])
+    stable_order(doc)
     with open(job["out_json"], "w") as f:
         json.dump(doc, f, indent=1)
 

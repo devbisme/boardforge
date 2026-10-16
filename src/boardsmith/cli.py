@@ -5,6 +5,7 @@
     boardsmith review                                B4 gate: constraints.json against the design
     boardsmith datasheets status|sync|add|check|show|publish|paths
                                                      part-fact cache (datasheet PDFs, extractions)
+    boardsmith render [--side top|bottom|both]       pictures of the current board (to check placement)
     boardsmith status                                stage results from pipeline_state.json
     boardsmith doctor                                check KiCad, Freerouting, config
 
@@ -13,6 +14,7 @@ Output is a short summary per stage; details are in <project>/build/reports/.
 
 import argparse
 import json
+import os
 import sys
 
 from boardsmith import __version__, fabs, routers
@@ -139,6 +141,21 @@ def cmd_datasheets(args):
     return 0
 
 
+def cmd_render(args):
+    from boardsmith.kicad import Kicad
+    from boardsmith.render import render
+
+    proj = Project.load(args.dir)
+    sides = ("top", "bottom") if args.side == "both" else (args.side,)
+    try:
+        for f in render(proj, Kicad.find(proj.cfg["kicad"]), sides, pours=args.pours):
+            print(f"  {os.path.relpath(f, proj.root)}")
+    except FileNotFoundError as e:
+        print(f"! {e}")
+        return 1
+    return 0
+
+
 def cmd_status(args):
     proj = Project.load(args.dir)
     st = State(proj.state_file)
@@ -236,6 +253,9 @@ def main(argv=None):
     d.add_argument("--offline", action="store_true", help="sync: don't download PDFs")
     d.add_argument("--force", action="store_true",
                    help="publish: replace shared entries; add: skip the part-name check")
+    r2 = sub.add_parser("render", help="SVG/PNG of the current board (placed or routed)")
+    r2.add_argument("--side", choices=("top", "bottom", "both"), default="top")
+    r2.add_argument("--pours", action="store_true", help="keep copper pours (hide tracks under them)")
     sub.add_parser("status", help="show stage results")
     sub.add_parser("doctor", help="check the environment")
     args = ap.parse_args(argv)
@@ -247,6 +267,8 @@ def main(argv=None):
         return cmd_run(args, (ALIASES[args.cmd],))
     if args.cmd == "status":
         return cmd_status(args)
+    if args.cmd == "render":
+        return cmd_render(args)
     if args.cmd == "review":
         return cmd_review(args)
     if args.cmd == "datasheets":

@@ -18,6 +18,12 @@ STD_FIELDS = {"Reference", "Value", "Footprint", "Datasheet", "Description", "Sh
               "Sheetfile", "ki_keywords", "ki_fp_filters", "ki_description"}
 
 
+def is_dnp(comp):
+    """Do-not-populate: a DNP field that isn't "no"/"false"/"0", or the value "DNP"."""
+    v = str(comp["fields"].get("DNP", comp["fields"].get("dnp", ""))).strip().casefold()
+    return v not in ("", "no", "false", "0", "n") or comp.get("value", "").strip().upper() == "DNP"
+
+
 def estimate_size(fps, fill, mh_inset):
     """Board [w, h] (mm, 4:3) whose area makes the courtyards cover ``fill`` of it."""
     area = 0.0
@@ -94,6 +100,11 @@ def build(job):
             n = pad_net.get((ref, pad.GetNumber()))
             if n:
                 pad.SetNet(netinfo[n])
+        if is_dnp(c):
+            # placed (for a later rework) but not assembled: out of the BOM, CPL and counts
+            fp.SetDNP(True)
+            fp.SetExcludedFromBOM(True)
+            fp.SetExcludedFromPosFiles(True)
         fps.append(fp)
 
     mh = job.get("mounting_holes") or {}

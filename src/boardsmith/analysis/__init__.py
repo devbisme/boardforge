@@ -196,12 +196,14 @@ def routing_from_drc(pcb, drc_report):
 @register("release_gate", "kicad_happy")
 def _gate(ctx):
     # The gate compares schematic parts with *all* PCB footprints; board-only ones
-    # (fiducials, mounting holes) have no schematic symbol, so they're left out of the count.
+    # (fiducials, mounting holes) have no schematic symbol, and the schematic count leaves
+    # out DNP parts, so both are left out of the count.
     # Its DFM tier is re-judged against the board's fab tier (dfm_for_fab).
     with open(ctx.outputs["pcb"]) as f:
         pcb = json.load(f)
     fps = pcb.get("footprints", [])
-    pcb.setdefault("statistics", {})["footprint_count"] = sum(1 for fp in fps if not fp.get("board_only"))
+    pcb.setdefault("statistics", {})["footprint_count"] = sum(
+        1 for fp in fps if not fp.get("board_only") and not fp.get("dnp"))
     if ctx.drc_report and os.path.exists(ctx.drc_report):
         with open(ctx.drc_report) as f:
             routing_from_drc(pcb, json.load(f))

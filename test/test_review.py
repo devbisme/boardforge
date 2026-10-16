@@ -135,3 +135,14 @@ def test_gate_status_and_report(tmp_path):
     assert (tmp_path / "build" / "reports" / "review.json").exists()
     rep = run({**base, "id": "hard", "tag": "HARD", "max_db": -10})
     assert rep["status"] == "FAIL" and rep["hard_fail"] == ["hard"]
+
+
+def test_amp_units_per_unit_of_a_dual_opamp():
+    units = {"1": {"1": ("", "output"), "2": ("-", "input"), "3": ("+", "input")},
+             "2": {"5": ("+", "input"), "6": ("-", "input"), "7": ("", "output")},
+             "3": {"4": ("V-", "power_in"), "8": ("V+", "power_in")}}
+    allp = {k: v for u in units.values() for k, v in u.items()}
+    got = sp.amp_units(units, allp)
+    assert [g[0] for g in got] == ["_A", "_B"]
+    assert set(got[1][1]) == {"5", "6", "7", "4", "8"}  # unit B plus the shared supply pins
+    assert sp.amp_units({"1": allp}, allp) == [("", allp)]  # single-unit: the whole part

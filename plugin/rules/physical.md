@@ -84,14 +84,10 @@ The C3 summary and its warnings show:
 - **"N placement cells need more routing than they have":** congestion
   (`reports/congestion.json`). Spread the anchors or enlarge the board.
 
-To see the placement before routing, render it:
-
-```bash
-kicad-cli pcb export svg --layers F.Fab,F.Silkscreen,Edge.Cuts,F.Cu --mode-single --fit-page-to-board \
-    --exclude-drawing-sheet -o /tmp/place.svg build/kicad/<name>.kicad_pcb
-```
-
-Then convert it to PNG (inkscape or rsvg-convert) and look at it.
+To see the placement before routing, run `boardsmith render` (`--side both` adds the
+mirrored bottom). It writes `build/renders/top.svg` and `.png`, tracks visible and pours
+left out, using boardsmith's own KiCad: a `kicad-cli` on PATH may be too old to read the
+board. Look at the PNG.
 
 ## After routing
 

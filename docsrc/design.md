@@ -995,6 +995,24 @@ fixed:
 - **Requirements:** the interview and architect now put the anti-alias constraint at fs/2,
   with the depth from the resolution. The run's driver had put it at fs.
 
+**Second plugin run (2026-10-15).** `boardsmith-tests/dual-adc-usb-2`, run on `b23e93b`: a
+routed 4-layer board, DRC 0, in about 1 h 57 m of work (run 1: about 4 h 8 m). The physical
+phase took 13 min: floorplan, placement check, one route. The anti-alias filter was
+designed against 72 dB at fs/2 and gives 81.8 dB. $30.55. Fixed afterwards:
+- the SPICE gate builds one model per amplifier unit, not per part. A dual op-amp's second
+  half, the filter's second stage, was missing, so 8 path checks failed falsely;
+- the package check accepts a pitch along either pad axis (4-pad oscillators);
+- C2 marks DNP parts DNP on the board, excluded from BOM and position files;
+- netlist.json is sorted, because SKiDL builds sheets and pins from sets;
+- new `boardsmith render` for checking placement (an older `kicad-cli` on PATH couldn't
+  read the board).
+
+Left as notes:
+- pin-type changes made in SKiDL don't reach the generated schematic, so agents copied
+  symbols to satisfy KiCad's ERC;
+- FPGA decaps 3–6 mm from their pins;
+- the run's BNC footprint was a stand-in.
+
 ## 5. Expected gains (estimates, not measurements)
 
 | Criterion | Baseline in runs | Expected | Why |

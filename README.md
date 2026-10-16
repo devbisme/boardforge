@@ -27,6 +27,7 @@ boardsmith run                 # C1..C6 -> build/
 boardsmith run --from c4       # rerun from routing
 boardsmith route               # one stage: sch | board | place | route | check | fab
 boardsmith status
+boardsmith render --side both  # build/renders/*.svg/png of the current board
 boardsmith review              # B4: constraints.json against the design (after C1)
 boardsmith datasheets sync     # part-fact cache: datasheet PDFs and extractions
 ```
