@@ -27,6 +27,7 @@ from boardforge.state import STAGES, State
 
 RAIL_RX = re.compile(r"^([+-]?\d+V\d*\w*|V(CC|DD|EE|SS|BUS|IN|BAT|REF)\w*|\w*GND\w*|\w*VSS\w*)$", re.I)
 GROUND_RX = re.compile(r"(GND|VSS)", re.I)
+FIDUCIAL = "Fiducial:Fiducial_1mm_Mask2mm"
 # DRC types on a placed, unrouted board that mean the placement itself is wrong.
 PLACEMENT_DRC = {"shorting_items", "courtyards_overlap", "pth_inside_courtyard", "clearance",
                  "hole_clearance", "copper_edge_clearance"}
@@ -129,14 +130,16 @@ class Pipeline:
                     ground.add(nm[name])
         return sorted(rails), sorted(ground)
 
+    def board_fp_libs(self):
+        """Libraries of the footprints boardforge adds itself (mounting holes, fiducials)."""
+        b = self.cfg["board"]
+        return {extra.split(":")[0]
+                for extra in (b["mounting_holes"].get("footprint", ""), FIDUCIAL) if ":" in extra}
+
     def fp_paths(self):
         comps, _ = read_kicad_netlist(self.p.kfile(".net"))
         libs = {c["footprint"].split(":")[0] for c in comps.values() if ":" in c["footprint"]}
-        b = self.cfg["board"]
-        for extra in (b["mounting_holes"].get("footprint", ""), "Fiducial:Fiducial_1mm_Mask2mm"):
-            if ":" in extra:
-                libs.add(extra.split(":")[0])
-        return project.footprint_paths(libs, self.k.footprint_dir,
+        return project.footprint_paths(libs | self.board_fp_libs(), self.k.footprint_dir,
                                        self.cfg["libraries"]["footprints"])
 
     def plane_nets(self, warnings=None):
@@ -213,8 +216,10 @@ class Pipeline:
             raise StageError(f"SKiDL run failed: {sk.get('error')}")
         warnings = list(sk.get("warnings", []))
 
-        fp_paths = project.footprint_paths(sk["fp_libs"], self.k.footprint_dir,
-                                           self.cfg["libraries"]["footprints"])
+        # The table also names the libraries of the board-only footprints C2 and C4 add:
+        # without them KiCad's DRC warns (lib_footprint_issues) on every mounting hole and fiducial.
+        fp_paths = project.footprint_paths(set(sk["fp_libs"]) | self.board_fp_libs(),
+                                           self.k.footprint_dir, self.cfg["libraries"]["footprints"])
         missing = project.write_lib_tables(kdir, sk["sym_libs"], fp_paths, self.k.symbol_dir)
         warnings += [f"footprint library {m} not found" for m in missing]
 
@@ -592,7 +597,7 @@ class Pipeline:
                            **{k: r.get(k) for k in ("widened", "pours_added", "stitching_vias")}}
         if b["fiducials"]:
             r = self.k.pcb("fiducials", {"pcb": final, "fp_paths": self.fp_paths(),
-                                         "footprint": "Fiducial:Fiducial_1mm_Mask2mm",
+                                         "footprint": FIDUCIAL,
                                          "label": f"{self.p.name} Rev {b['revision']}"},
                            self.p.work)
             steps["fiducials"] = len(r.get("placed", []))

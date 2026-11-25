@@ -106,6 +106,14 @@ def test_lib_tables(tmp_path):
     assert '(name "Device")' in sym and '(name "power")' in sym
 
 
+def test_lib_tables_power_library_as_a_file(tmp_path):
+    """Some KiCad 10 packages (the macOS app) ship power.kicad_sym, not power.kicad_symdir."""
+    (tmp_path / "power.kicad_sym").write_text("")
+    project.write_lib_tables(str(tmp_path), {"Device": "/s/Device.kicad_sym"}, {}, str(tmp_path))
+    sym = (tmp_path / "sym-lib-table").read_text()
+    assert f'(name "power") (type "KiCad") (uri "{tmp_path}/power.kicad_sym")' in sym
+
+
 def test_config_merge(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "USER_CONFIG", str(tmp_path / "none.toml"))
     (tmp_path / "boardforge.toml").write_text(

@@ -100,9 +100,14 @@ def write_lib_tables(kicad_dir, sym_libs, fp_paths, symbol_dir):
     Returns the footprint library nicknames whose directory doesn't exist.
     """
     syms = dict(sym_libs)
-    power = os.path.join(symbol_dir, "power.kicad_symdir")
-    if "power" not in syms and os.path.exists(power):
-        syms["power"] = power  # schematizer's power symbols and PWR_FLAGs
+    if "power" not in syms:  # schematizer's power symbols and PWR_FLAGs
+        # KiCad 10 ships its libraries as .kicad_symdir folders or as .kicad_sym files,
+        # depending on the package (the macOS app has power.kicad_sym).
+        for ext in (".kicad_symdir", ".kicad_sym"):
+            power = os.path.join(symbol_dir, "power" + ext)
+            if os.path.exists(power):
+                syms["power"] = power
+                break
     with open(os.path.join(kicad_dir, "sym-lib-table"), "w") as f:
         f.write("(sym_lib_table\n  (version 7)\n")
         for nick, path in sorted(syms.items()):

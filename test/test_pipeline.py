@@ -105,6 +105,30 @@ def test_board_routed_and_clean(tiny):
     assert "Power" in [c["name"] for c in pro["net_settings"]["classes"]]
 
 
+def test_lib_tables_cover_what_the_pipeline_adds(tiny, tmp_path):
+    """The project lib tables name every library the generated files use, including the
+    power symbols and the fiducials boardforge places itself. Checked with an empty KiCad
+    configuration directory: on a machine where KiCad's GUI has run, its global tables hide
+    a missing entry; on a fresh or CI machine each one is an ERC/DRC warning."""
+    import subprocess
+
+    proj, _ = tiny
+    env = dict(KICAD.env(), KICAD_CONFIG_HOME=str(tmp_path / "config"))
+
+    def violations(*args):
+        out = tmp_path / "report.json"
+        subprocess.run([KICAD.cli, *args, "--format", "json", "--severity-all", "-o", str(out)],
+                       capture_output=True, env=env, timeout=600)
+        with open(out) as f:
+            d = json.load(f)
+        return d.get("violations", []) + [v for s in d.get("sheets", []) for v in s["violations"]]
+
+    erc = violations("sch", "erc", proj.kfile(".kicad_sch"))
+    assert not [v["description"] for v in erc if v["type"] == "lib_symbol_issues"]
+    drc = violations("pcb", "drc", proj.kfile(".kicad_pcb"))
+    assert not [v["description"] for v in drc if v["type"] == "lib_footprint_issues"]
+
+
 def test_fab_outputs(tiny):
     proj, res = tiny
     s = res["c6"]["summary"]
