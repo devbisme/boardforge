@@ -136,7 +136,16 @@ def _emc(ctx):
 
 @register("cross_verify", "kicad_happy")
 def _cross(ctx):
-    args = ["-s", ctx.schematic_with_loads(), "-p", ctx.outputs["pcb"], "-o", ctx.out("cross_verify")]
+    # Board-only footprints (fiducials, mounting holes) have no schematic symbol; cross_verify
+    # would report each one as "in PCB but not in schematic" (as the release gate would: _gate).
+    sch = ctx.schematic_with_loads()  # first: a missing schematic analysis skips the step
+    with open(ctx.outputs["pcb"]) as f:
+        pcb = json.load(f)
+    pcb["footprints"] = [fp for fp in pcb.get("footprints", []) if not fp.get("board_only")]
+    pcb_cross = ctx.out("pcb_for_cross_verify")
+    with open(pcb_cross, "w") as f:
+        json.dump(pcb, f)
+    args = ["-s", sch, "-p", pcb_cross, "-o", ctx.out("cross_verify")]
     if "thermal" in ctx.outputs:
         args += ["-t", ctx.outputs["thermal"]]
     _vendor("kicad/scripts/cross_verify.py", *args)
@@ -219,10 +228,28 @@ def _gate(ctx):
     return ctx.out("release_gate")
 
 
+def _status_items(d):
+    """cross_verify's entries: dicts with a "status", in lists one or two levels down."""
+    for section in d.values():
+        groups = [section] if isinstance(section, list) else \
+            [v for v in section.values() if isinstance(v, list)] if isinstance(section, dict) else []
+        for group in groups:
+            yield from (x for x in group if isinstance(x, dict) and "status" in x)
+
+
 def summarize(path, top=5):
     """Counts by severity plus the first few errors, from kicad-happy's common envelope."""
     with open(path) as f:
         d = json.load(f)
+    if isinstance(d, dict) and "cross_verify_version" in d:
+        # cross_verify has its own shape: statuses (pass/warning/fail/info), no findings list.
+        # Read as the common envelope it came out as "no errors" whatever it found.
+        items = list(_status_items(d))
+        counts = {}
+        for x in items:
+            counts[x["status"]] = counts.get(x["status"], 0) + 1
+        return {"by_status": counts,
+                "errors": [(x.get("message") or "")[:90] for x in items if x["status"] == "fail"][:top]}
     s = d.get("summary", {}) if isinstance(d, dict) else {}
     out = {"by_severity": s.get("by_severity")}
     findings = [x for x in d.get("findings", []) if not x.get("suppressed")]

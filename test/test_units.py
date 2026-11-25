@@ -424,3 +424,24 @@ def test_compaction_stops_when_passives_are_pushed_away(tmp_path):
 
     assert trial(7) is None  # 5 more than at full size: still fits (default max_stretched)
     assert "passives over 8.0 mm" in trial(8)
+
+
+def test_cross_verify_summary_reports_failures(tmp_path):
+    """cross_verify.json has statuses, not kicad-happy's findings list; its fails used to be
+    summarized as by_severity None, errors []."""
+    p = tmp_path / "cross_verify.json"
+    p.write_text(json.dumps({
+        "cross_verify_version": 1,
+        "component_matching": {
+            "matched": 5,
+            "orphans": [{"ref": "U9", "status": "fail", "message": "U9 in PCB but not in schematic"}],
+            "missing": [{"ref": "R7", "status": "fail", "message": "R7 in schematic but not in PCB"}],
+        },
+        "decoupling_placement": [{"cap_ref": "C1", "status": "info", "message": "far"},
+                                 {"cap_ref": "C2", "status": "warning", "message": "farther"}],
+        "summary": {"total_checks": 2, "fail": 2, "info": 1, "warning": 1},
+    }))
+    s = analysis.summarize(str(p))
+    assert s["by_status"] == {"fail": 2, "info": 1, "warning": 1}
+    assert s["errors"] == ["U9 in PCB but not in schematic", "R7 in schematic but not in PCB"]
+

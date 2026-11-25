@@ -105,6 +105,14 @@ def test_board_routed_and_clean(tiny):
     assert "Power" in [c["name"] for c in pro["net_settings"]["classes"]]
 
 
+def test_cross_verify_ignores_board_only_footprints(tiny):
+    """Fiducials have no schematic symbol: not a schematic/PCB mismatch."""
+    proj, res = tiny
+    assert res["c5"]["summary"]["analysis"]["cross_verify"]["errors"] == []
+    with open(os.path.join(proj.reports, "analysis", "cross_verify.json")) as f:
+        assert json.load(f)["component_matching"]["orphans"] == []
+
+
 def test_fab_outputs(tiny):
     proj, res = tiny
     s = res["c6"]["summary"]
