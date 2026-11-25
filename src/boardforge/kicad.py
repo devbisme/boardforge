@@ -95,7 +95,9 @@ class Kicad:
                 raise KicadError("kicad-cli not found; set [kicad] cli or BOARDFORGE_KICAD_CLI")
             cli, version = fallback
             warnings.append(f"kicad-cli {version} at {cli} is older than {MIN_MAJOR}")
-        bindir = os.path.dirname(cli)
+        # KiCad's Python and libraries are located relative to the real binary: a package
+        # manager's kicad-cli (Homebrew's /opt/homebrew/bin/kicad-cli) is a symlink into it.
+        bindir = os.path.dirname(os.path.realpath(cli))
         root = os.path.dirname(bindir)
 
         py = _expand(cfg.get("python", "")) or os.environ.get("BOARDFORGE_KICAD_PYTHON", "")
