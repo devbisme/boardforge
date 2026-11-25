@@ -2,6 +2,7 @@
 
 import json
 import math
+import os
 import re
 import sys
 import traceback
@@ -25,6 +26,13 @@ def run(step):
         res = {"ok": False, "error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()}
     with open(job["result"], "w") as f:
         json.dump(res, f, indent=1)
+    # Leave without tearing the interpreter down. Everything is on disk by now, and KiCad's
+    # Python can segfault in Py_FinalizeEx while collecting pcbnew's SWIG objects (seen on
+    # macOS with KiCad 10.0.8 after the A* router: exit code -11 and a crash dialog, with a
+    # good result file).
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 def pt(x, y):
