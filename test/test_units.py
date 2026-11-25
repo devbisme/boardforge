@@ -424,3 +424,28 @@ def test_compaction_stops_when_passives_are_pushed_away(tmp_path):
 
     assert trial(7) is None  # 5 more than at full size: still fits (default max_stretched)
     assert "passives over 8.0 mm" in trial(8)
+
+
+def test_kicad_found_through_a_symlinked_cli(tmp_path):
+    """Homebrew puts a kicad-cli symlink in /opt/homebrew/bin; KiCad's libraries (and its
+    Python) are next to the real binary, not next to the link."""
+    import stat
+    import sys
+
+    from boardforge.kicad import Kicad
+
+    root = tmp_path / "kicad"
+    for d in ("bin", "share/kicad/symbols", "share/kicad/footprints"):
+        (root / d).mkdir(parents=True)
+    real = root / "bin" / "kicad-cli"
+    real.write_text("#!/bin/sh\necho 10.0.0\n")
+    real.chmod(real.stat().st_mode | stat.S_IXUSR)
+    (tmp_path / "links").mkdir()
+    link = tmp_path / "links" / "kicad-cli"
+    link.symlink_to(real)
+
+    k = Kicad.find({"cli": str(link), "python": sys.executable})
+    assert k.cli == str(link)
+    assert k.symbol_dir == os.path.realpath(root / "share/kicad/symbols")
+    assert k.footprint_dir == os.path.realpath(root / "share/kicad/footprints")
+    assert not k.warnings
